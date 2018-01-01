@@ -9,24 +9,30 @@ import (
 // Security struct holds attributes relative to a security,
 // including ticker and historical information.
 type Security struct {
-	Ticker string // Ticker holds name of individual security.
-	// HistData holds individual instances of tick data,
-	// including price, volume, and datetime.
-	HistData []tickData
+	Ticker          string
+	Quantity        float64
+	HistData        []TickData
+	AdditionalAttrs map[string]interface{}
 }
 
 // newTickData creates a new tick instance, and appends it
 // to the tickData slice, HistData.
 func (s *Security) newTickData(date time.Time, price float64, volume float64) {
-	tick := tickData{date, price, volume}
+	tick := TickData{date, price, volume}
 	s.HistData = append(s.HistData, tick)
 }
 
-// tickData is a struct that should not be used on its own, and is aggregated
+// TickData is a struct that should not be used on its own, and is aggregated
 // in a Security's HistData slice.
-type tickData struct {
+type TickData struct {
 	Date          time.Time
 	Price, Volume float64
+}
+
+// Kwarg struct allows for additional/optional arguments in a go function.
+type Kwarg struct {
+	name  string
+	value interface{}
 }
 
 //TODO: create test file
@@ -39,8 +45,8 @@ type Handler struct {
 // newSecurity creates a new Security instance and appends it to the
 // Handler's Securities slice.
 func (h *Handler) newSecurity(ticker string) {
-	newSecurity := Security{ticker, nil}
-	h.Securities = append(h.Securities, newSecurity)
+	//newSecurity := Security{ticker, nil}
+	//h.Securities = append(h.Securities, newSecurity)
 }
 
 func main() {
