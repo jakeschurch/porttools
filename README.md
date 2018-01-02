@@ -1,18 +1,18 @@
-# Go-Security Pkg Documentation
-##### Version: 0.0.1
+# Portfolio-Tools
+[![GoDoc](https://godoc.org/github.com/jakeschurch/portfolio-tools?status.svg)](https://godoc.org/github.com/jakeschurch/portfolio-tools
 ---
-Go-Security is a package that allows for the storage of information of a particular security.
+Portfolio-Tools is a package that allows for the storage of information of a particular security.
 **TBD: Go-Transaction(?)
 TODO: Go-Portfolio**
 
 ### Attributes to Implement
 ---
 0. Ticker string
-1. Historical Price Data **TBD** 
+1. Historical Price Data **TBD**
 2. Date Bought datetime
 3. Date Sold datetime
 4. Quantity *(int or float64?)*
-5. Order Type [Buy, Sell, Limit] 
+5. Order Type [Buy, Sell, Limit]
 
 ## Historical Data Slices
 ---
@@ -32,10 +32,10 @@ QUESTION: How detailed do we want to store data? Are we storing data at tick-lev
 
 ### 1.  Jagged Slice Route
 - Access elements by slice index
-- Most likely faster than implementation #0 
-- reference elements by value 
+- Most likely faster than implementation #0
+- reference elements by value
 #### Example Implementation:
-$$\begin{bmatrix} 
+$$\begin{bmatrix}
 \begin{bmatrix}
 Datetime_0, Price_0, Volume_0,
 \end{bmatrix}, \\\\
@@ -56,7 +56,3 @@ Datetime_n, Price_n, Volume_n,
 ---
 0. Get Last (latest) price
 1. String Representation (for logging)
-
-
-
-
