@@ -2,6 +2,7 @@
 package security
 
 import (
+	"errors"
 	"time"
 )
 
@@ -11,8 +12,24 @@ type Security struct {
 	Ticker          string
 	Quantity        float64
 	HistData        []*TickData
-	Orders          []*Order
+	Orders          []Order
 	AdditionalAttrs []*Kwarg
+}
+
+// Transact conducts agreement between Security and Order
+func (s *Security) Transact(o Order) error {
+
+	if o.TransactionT == Sell && s.Quantity-o.Quantity >= 0 {
+		s.Quantity -= o.Quantity
+	} else if o.TransactionT == Buy {
+		s.Quantity += o.Quantity
+	} else {
+		return errors.New("cannot hold less than 0 shares")
+	}
+
+	s.Orders = append(s.Orders, o) // Add order to Orders slice
+
+	return nil
 }
 
 // TickData is a struct that should not be used on its own, and is aggregated
