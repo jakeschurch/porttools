@@ -2,7 +2,6 @@
 package security
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -11,44 +10,57 @@ import (
 type Security struct {
 	Ticker          string
 	Quantity        float64
-	HistData        []TickData
-	AdditionalAttrs map[string]interface{}
-}
-
-// newTickData creates a new tick instance, and appends it
-// to the tickData slice, HistData.
-func (s *Security) newTickData(date time.Time, price float64, volume float64) {
-	tick := TickData{date, price, volume}
-	s.HistData = append(s.HistData, tick)
+	HistData        []*TickData
+	Orders          []*Order
+	AdditionalAttrs []*Kwarg
 }
 
 // TickData is a struct that should not be used on its own, and is aggregated
 // in a Security's HistData slice.
+// Whenever a TickData slice is instantiated - it should be stored in a
+// Security instance of HistData.
+// TODO: Create Example of storing tickData in Security instance
 type TickData struct {
-	Date          time.Time
-	Price, Volume float64
+	Price, Volume, BidSize, AskSize float64
+	Date                            time.Time // NOTE: Data Date format: HHMMSSxxxxxxxxx
 }
 
-// Kwarg struct allows for additional/optional arguments in a go function.
+// Order stores information regarding a stock transaciton.
+type Order struct {
+	OrderT       OrderType
+	TransactionT TransactionType
+	Price        float64
+	Quantity     float64
+	Date         time.Time
+}
+
+// OrderType used to identify type of order.
+type OrderType int
+
+const (
+	market OrderType = iota // 0
+	limit
+	stopLimit
+	stopLoss
+	day
+	open // 5
+)
+
+// TransactionType used to identify type of transaction.
+type TransactionType int
+
+const (
+	buy TransactionType = iota
+	sell
+)
+
+// Kwarg struct allows for add'l args/attrs to a class or func.
 type Kwarg struct {
 	name  string
 	value interface{}
 }
 
-//TODO: create test file
-
-// Handler is an aggregation struct holding all active securities and attributes.
+// Handler is an aggregation struct holding all active securities.
 type Handler struct {
-	Securities []Security
-}
-
-// newSecurity creates a new Security instance and appends it to the
-// Handler's Securities slice.
-func (h *Handler) newSecurity(ticker string) {
-	//newSecurity := Security{ticker, nil}
-	//h.Securities = append(h.Securities, newSecurity)
-}
-
-func main() {
-	fmt.Println("hello")
+	Securities []*Security
 }
