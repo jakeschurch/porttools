@@ -49,9 +49,10 @@ const (
 // TransactionType used to identify type of transaction.
 type TransactionType int
 
+// Implement TransactionType enum.
 const (
-	buy TransactionType = iota
-	sell
+	Buy TransactionType = iota
+	Sell
 )
 
 // Kwarg struct allows for add'l args/attrs to a class or func.
