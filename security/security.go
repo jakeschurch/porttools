@@ -12,8 +12,9 @@ type Security struct {
 	Ticker          string
 	ActiveQuantity  float64
 	HistData        []*TickData
+	HistData        []TickData
 	Orders          []Order
-	AdditionalAttrs []*Kwarg
+	AdditionalAttrs []Kwarg
 }
 
 // Transact conducts agreement between Security and Order
