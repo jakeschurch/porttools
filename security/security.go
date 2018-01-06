@@ -10,7 +10,7 @@ import (
 // including ticker and historical information.
 type Security struct {
 	Ticker          string
-	Quantity        float64
+	ActiveQuantity  float64
 	HistData        []*TickData
 	Orders          []Order
 	AdditionalAttrs []*Kwarg
@@ -19,10 +19,10 @@ type Security struct {
 // Transact conducts agreement between Security and Order
 func (s *Security) Transact(o Order) error {
 
-	if o.TransactionT == Sell && s.Quantity-o.Quantity >= 0 {
-		s.Quantity -= o.Quantity
+	if o.TransactionT == Sell && s.ActiveQuantity-o.Quantity >= 0 {
+		s.ActiveQuantity -= o.Quantity
 	} else if o.TransactionT == Buy {
-		s.Quantity += o.Quantity
+		s.ActiveQuantity += o.Quantity
 	} else {
 		return errors.New("cannot hold less than 0 shares")
 	}
@@ -36,7 +36,7 @@ func (s *Security) Transact(o Order) error {
 // in a Security's HistData slice.
 // Whenever a TickData slice is instantiated - it should be stored in a
 // Security instance of HistData.
-// TODO: Create Example of storing tickData in Security instance
+// TODO(TickData) Create Example of storing tickData in Security instance
 type TickData struct {
 	Price, Volume, BidSize, AskSize float64
 	Date                            time.Time // NOTE: Data Date format: HHMMSSxxxxxxxxx
@@ -44,10 +44,10 @@ type TickData struct {
 
 // Order stores information regarding a stock transaciton.
 type Order struct {
-	OrderT       OrderType
-	TransactionT TransactionType
 	Price        float64
 	Quantity     float64
+	OrderT       OrderType
+	TransactionT TransactionType
 	Date         time.Time
 }
 
