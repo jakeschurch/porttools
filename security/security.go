@@ -11,10 +11,24 @@ import (
 type Security struct {
 	Ticker          string
 	ActiveQuantity  float64
-	HistData        []*TickData
 	HistData        []TickData
 	Orders          []Order
 	AdditionalAttrs []Kwarg
+}
+
+// NewSecurity initializes a new Security struct, and returns a reference
+// to the memory location of the newly created Security.
+func NewSecurity(t string, buyOrder Order) *Security {
+	var (
+		tickData  = []TickData{}
+		orders    = []Order{}
+		addlAttrs = []Kwarg{}
+	)
+
+	security := &Security{t, 0, tickData, orders, addlAttrs}
+	security.Transact(buyOrder)
+
+	return security
 }
 
 // Transact conducts agreement between Security and Order
