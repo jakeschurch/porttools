@@ -2,80 +2,75 @@
 package porttools
 
 import (
-	"errors"
 	"time"
 )
 
 // Security struct holds attributes relative to a financial security,
 // such as a stock ticker, as well as the tick data of the instrument.
 type Security struct {
-	Ticker          string
-	HistData        []TickData
-	AdditionalAttrs []Kwarg
+	Ticker                          string
+	numTicks                        int
+	LastPrice, PriceMax, PriceMin   float64
+	MaxVolume, MinVolume, AvgVolume float64
+	AddlAttrs                       []Kwarg
 }
 
 // NewSecurity initializes a new Securty struct, and returns a references
 // the the memory location of the newly created Security.
 func NewSecurity(t string, kwargs []Kwarg) *Security {
-	s := Security{Ticker: t, AdditionalAttrs: kwargs}
+	s := Security{Ticker: t, numTicks: 0, AddlAttrs: kwargs}
 
 	return &s
 }
 
-// Holding struct is a subclass of the Security struct,
-// allowing attributes regarding orders and the active quantity of
+// Position struct is a subclass of the Security struct,
+// allowing attributes regarding orders and the active Volume of
 // shares held to be defined.
-type Holding struct {
-	*Security      // Anonymous field
-	ActiveQuantity float64
-	Orders         []Order
+type Position struct {
+	Ticker                            string
+	Volume                            float64
+	numTicks                          int
+	LastPrice, PriceBought, PriceSold float64
+	PriceAvg, PriceMax, PriceMin      float64
+	DateBought, DateSold              time.Time
 }
 
-// NewHolding initializes a new Holding struct, and returns a reference
-// to the memory location of the newly created Holding.
-func NewHolding(s *Security, buyOrder Order) *Holding {
-	var (
-		orders = []Order{}
-	)
+func (pos *Position) sellShares(order *Order) *Position {
+	pos.Volume = order.Volume
+	pos.PriceSold = order.Price
+	pos.DateSold = order.Date
 
-	Holding := &Holding{s, 0, orders}
-	Holding.Transact(buyOrder)
-
-	return Holding
+	return pos
 }
 
-// Transact conducts agreement between Holding and Order
-func (h *Holding) Transact(o Order) (err error) {
-
-	if o.TransactionT == Sell && h.ActiveQuantity-o.Quantity >= 0 {
-		h.ActiveQuantity -= o.Quantity
-	} else if o.TransactionT == Buy {
-		h.ActiveQuantity += o.Quantity
-	} else {
-		return errors.New("cannot hold less than 0 shares")
-	}
-
-	h.Orders = append(h.Orders, o) // Add order to the Holding's Orders slice
-
-	return nil
+// NewPosition initializes a new Position struct, and returns a reference
+// to the memory location of the newly created Position.
+func NewPosition(security *Security) *Position {
+	position := Position{Ticker: security.Ticker}
+	return &position
 }
 
-// TickData is a struct that should not be used on its own, and is aggregated
-// in a Holding's HistData slice.
+// Tick is a struct that should not be used on its own, and is aggregated
+// in a Position's HistData slice.
 // Whenever a TickData slice is instantiated - it should be stored in a
-// Holding instance of HistData.
-// TODO(TickData) Create Example of storing tickData in Holding instance
-type TickData struct {
-	Price, Volume, BidSize, AskSize float64
-	Date                            time.Time // NOTE: Data Date format: HHMMSSxxxxxxxxx
+// Position instance of HistData.
+// TODO(Tick) Create Example of storing tickData in Position instance
+type Tick struct {
+	Ticker   string
+	Price    float64
+	Volume   float64
+	BidSize  float64
+	AskSize  float64
+	Datetime time.Time
 }
 
 // Order stores information regarding a stock transaciton.
 type Order struct {
 	TransactionT TransactionType
 	OrderT       OrderType
+	Ticker       string
 	Price        float64
-	Quantity     float64
+	Volume       float64
 	Date         time.Time
 }
 
@@ -104,9 +99,4 @@ const (
 type Kwarg struct {
 	name  string
 	value interface{}
-}
-
-// Handler is an aggregation struct holding all active securities.
-type Handler struct {
-	Securities []*Holding
 }
