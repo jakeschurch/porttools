@@ -2,8 +2,7 @@ package porttools
 
 import "errors"
 
-// TODO: rename/factor AddToPortfolio functions
-
+// PositionSlice TODO
 type PositionSlice []*Position
 
 // Remove is a function to remove *position values from a slice in-place.
@@ -35,28 +34,38 @@ type Portfolio struct {
 // Transact conducts agreement between Position and Order within a portfolio
 // TODO(Transact): Init/find active positions
 func (portfolio *Portfolio) Transact(position *Position, order *Order) (err error) {
+	// TODO: Money management function to make sure enough cash is on hand
+
+	// Add order to the Portfolio's Orders slice
+	portfolio.Orders = append(portfolio.Orders, order)
 
 	switch order.TransactionT {
 	case Sell:
 		portfolio.Sell(position, order)
 
 	case Buy:
-		position.Volume += order.Volume
-		portfolio.ActivePositions = append(portfolio.ActivePositions, position)
+		portfolio.Buy(order)
 	}
-
-	// Add order to the Portfolio's Orders slice
-	portfolio.Orders = append(portfolio.Orders, order)
 
 	return nil
 }
 
-func (portfolio *Portfolio) Buy(order *Order) (*Position, error) {
+// Buy is a function that creates a new position based off of an Order
+// and appends it to a Portfolio's ActivePositions slice.
+func (portfolio *Portfolio) Buy(order *Order) *Position {
+	portfolio.Cash -= order.Volume * order.Price
 
+	position := Position{Ticker: order.Ticker, Volume: order.Volume,
+		PriceBought: order.Price, DateBought: order.Date}
+
+	portfolio.ActivePositions = append(portfolio.ActivePositions, &position)
+
+	return &position
+}
 
 // Sell is a function that removes a Position's volume, as well as create
 // a new closed position. Updates a portfolio's cash balance.
-func (portfolio *Portfolio) Sell(position *Position, order *Order) (err error) {
+func (portfolio *Portfolio) Sell(position *Position, order *Order) {
 
 	if activeVolume := position.Volume - order.Volume; activeVolume >= 0 {
 		soldPosition := *position
@@ -66,15 +75,13 @@ func (portfolio *Portfolio) Sell(position *Position, order *Order) (err error) {
 		// Update active volume for position
 		position.Volume = activeVolume
 
-		// TODO: update cash balace
-
 		portfolio.ClosedPositions = append(portfolio.ClosedPositions, &soldPosition)
+		portfolio.Cash += order.Volume * order.Price
 
 		if activeVolume == 0 {
 			portfolio.ActivePositions.Remove(position)
 		}
-	}
-	return nil
+	} // QUESTION: Throw error?
 }
 
 // AddtoPortfolio adds Position instrument to MarketPortfolio instance.
