@@ -5,16 +5,30 @@ import (
 	"time"
 )
 
-// Security struct holds attributes relative to a financial security,
-// such as a stock ticker, as well as the tick data of the instrument.
+// NewSecurity ...TODO
+func NewSecurity(tick Tick) (newSecurity *Security) {
+	firstPrice := datedMetric{Amount: tick.Price, Date: tick.Datetime}
+	firstVolume := datedMetric{Amount: tick.Volume, Date: tick.Datetime}
+	return &Security{
+		Ticker: tick.Ticker, NumTicks: 1,
+		LastPrice: firstPrice, BuyPrice: firstPrice,
+		AvgPrice: tick.Price, AvgVolume: tick.Volume,
+		MaxPrice: firstPrice, MinPrice: firstPrice,
+		MaxVolume: firstVolume, MinVolume: firstVolume}
+}
+
+// Security ...TODO
 type Security struct {
 	Ticker                        string
 	NumTicks                      int
 	LastPrice, MaxPrice, MinPrice datedMetric
 	MaxVolume, MinVolume          datedMetric
-	PriceBought, SoldAt           datedMetric
+	BuyPrice, SellPrice           datedMetric
 	AvgPrice, AvgVolume           float64
-	AddlAttrs                     []Kwarg
+}
+
+func (security *Security) update(tick Tick) {
+	// TODO
 }
 
 type datedMetric struct {
@@ -22,28 +36,18 @@ type datedMetric struct {
 	Date   time.Time
 }
 
-// NewSecurity initializes a new Securty struct, and returns a references
-// the the memory location of the newly created Security.
-func NewSecurity(t string, kwargs []Kwarg) *Security {
-	s := Security{Ticker: t, NumTicks: 0, AddlAttrs: kwargs}
-
-	return &s
-}
-
-// Position struct is a subclass of the Security struct,
-// allowing attributes regarding orders and the active Volume of
-// shares held to be defined.
+// Position ...TODO
 type Position struct {
-	Ticker              string
-	Volume              float64
-	NumTicks            int
-	LastPrice, AvgPrice float64
-	MaxPrice, MinPrice  datedMetric
-	BoughtAt, SoldAt    datedMetric
+	Ticker                        string
+	Volume                        float64
+	NumTicks                      int
+	AvgPrice                      float64
+	LastPrice, MaxPrice, MinPrice datedMetric
+	BuyPrice, SellPrice           datedMetric
 }
 
 func (pos *Position) update(tick Tick) {
-	pos.LastPrice = tick.Price
+	pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
 
 	pos.AvgPrice = func(pos *Position, tick Tick) float64 {
 		s := pos.AvgPrice*float64(pos.NumTicks) + tick.Price
@@ -54,14 +58,7 @@ func (pos *Position) update(tick Tick) {
 
 }
 
-// func (pos *Position) updateMetric(tick Tick, p positionMetric) {
-// 	switch p {
-// 	case positionMetric.maxPrice:
-// 		pass
-// 	}
-// }
-
-func (pos *Position) updateMetric(tick Tick) (ok bool) {
+func (pos *Position) updateMetrics(tick Tick) (ok bool) {
 	pos.MaxPrice = func() datedMetric {
 		if tick.Price >= pos.MaxPrice.Amount {
 			return datedMetric{Amount: tick.Price, Date: tick.Datetime}
@@ -79,45 +76,14 @@ func (pos *Position) updateMetric(tick Tick) (ok bool) {
 	return true
 }
 
-type positionMetric int
-
-const (
-	maxPrice positionMetric = iota
-	minPrice
-	maxVolume
-	minVolume
-)
-
-// func (pos *Position) checkMetrics(tick Tick) {
-// 	switch tick.Price {
-// 	case >= pos.MaxPrice.Amount:
-// 		pos.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
-//
-// 	case <= pos.MinPrice.Amount:
-// 		pos.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
-//
-// 	}
-// }
-
 func (pos *Position) sellShares(order *Order) *Position {
 	pos.Volume = order.Volume
-	pos.SoldAt = datedMetric{Amount: order.Price, Date: order.Date}
+	pos.SellPrice = datedMetric{Amount: order.Price, Date: order.Date}
 
 	return pos
 }
 
-// NewPosition initializes a new Position struct, and returns a reference
-// to the memory location of the newly created Position.
-func NewPosition(security *Security) *Position {
-	position := Position{Ticker: security.Ticker}
-	return &position
-}
-
-// Tick is a struct that should not be used on its own, and is aggregated
-// in a Position's HistData slice.
-// Whenever a TickData slice is instantiated - it should be stored in a
-// Position instance of HistData.
-// TODO(Tick) Create Example of storing tickData in Position instance
+// Tick ...TODO
 type Tick struct {
 	Ticker   string
 	Price    float64
@@ -127,7 +93,7 @@ type Tick struct {
 	Datetime time.Time
 }
 
-// Order stores information regarding a stock transaciton.
+// Order stores information regarding a stock transactiton.
 type Order struct {
 	TransactionT TransactionType
 	ExecutionT   ExecutionType
@@ -137,7 +103,7 @@ type Order struct {
 	Date         time.Time
 }
 
-// ExecutionType used to identify type of order.
+// ExecutionType is used to identify type of order.
 type ExecutionType int
 
 const (
