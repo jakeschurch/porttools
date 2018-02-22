@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// NewSecurity ...TODO
+// NewSecurity instantiates a new security from Tick data.
 func NewSecurity(tick Tick) (newSecurity *Security) {
 	firstPrice := datedMetric{Amount: tick.Price, Date: tick.Datetime}
 	firstVolume := datedMetric{Amount: tick.Volume, Date: tick.Datetime}
@@ -17,7 +17,9 @@ func NewSecurity(tick Tick) (newSecurity *Security) {
 		MaxVolume: firstVolume, MinVolume: firstVolume}
 }
 
-// Security ...TODO
+// Security structs hold information regarding a financial asset for the entire
+// life of the financial asset in a trading environment. Because a Security struct
+// holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
 type Security struct {
 	Ticker                        string
 	NumTicks                      int
@@ -36,7 +38,7 @@ type datedMetric struct {
 	Date   time.Time
 }
 
-// Position ...TODO
+// Position structs refer the holding of a financial asset.
 type Position struct {
 	Ticker                        string
 	Volume                        float64
@@ -78,12 +80,12 @@ func (pos *Position) updateMetrics(tick Tick) (ok bool) {
 
 func (pos *Position) sellShares(order *Order) *Position {
 	pos.Volume = order.Volume
-	pos.SellPrice = datedMetric{Amount: order.Price, Date: order.Date}
+	pos.SellPrice = datedMetric{Amount: order.Price, Date: order.Datetime}
 
 	return pos
 }
 
-// Tick ...TODO
+// Tick structs holds information about a financial asset at a specific point in time.
 type Tick struct {
 	Ticker   string
 	Price    float64
@@ -93,26 +95,36 @@ type Tick struct {
 	Datetime time.Time
 }
 
-// Order stores information regarding a stock transactiton.
+// Order structs hold information referring to the details of the execution of a financial asset transaction.
 type Order struct {
-	TransactionT TransactionType
-	ExecutionT   ExecutionType
-	Ticker       string
-	Price        float64
-	Volume       float64
-	Date         time.Time
+	Status          OrderStatus
+	TransactionType TransactionType
+	OrderType       OrderType
+	Ticker          string
+	Price           float64
+	Volume          float64
+	Datetime        time.Time
 }
 
-// ExecutionType is used to identify type of order.
-type ExecutionType int
+// OrderStatus variables refer to a status of an order's execution.
+type OrderStatus int
 
 const (
-	market ExecutionType = iota // 0
+	open OrderStatus = iota // 0
+	completed
+	canceled
+	expired // 3
+)
+
+// OrderType is used to identify when the order should be executed.
+type OrderType int
+
+const (
+	market OrderType = iota // 0
 	limit
 	stopLimit
 	stopLoss
-	day
-	open // 5
+	day // 4
 )
 
 // TransactionType used to identify either a buy or a sell.

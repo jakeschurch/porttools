@@ -9,13 +9,13 @@ const (
 	lifo
 )
 
-// Portfolio ...TODO
+// Portfolio structs refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
 	ActivePositions PositionSlice
 	ClosedPositions PositionSlice
 	Orders          []*Order
 	Cash            float64
-	Benchmark       *Position
+	Benchmark       *Index
 }
 
 // Transact conducts agreement between Position and Order within a portfolio
@@ -25,7 +25,7 @@ func (portfolio *Portfolio) Transact(order *Order) (err error) {
 	// Add order to the Portfolio's Orders slice
 	portfolio.Orders = append(portfolio.Orders, order)
 
-	switch order.TransactionT {
+	switch order.TransactionType {
 
 	case Sell:
 		for order.Volume > 0 {
@@ -45,7 +45,7 @@ func (portfolio *Portfolio) Buy(order *Order) *Position {
 	portfolio.Cash -= order.Volume * order.Price
 
 	positionToBuy := Position{Ticker: order.Ticker, Volume: order.Volume,
-		BuyPrice: datedMetric{Amount: order.Price, Date: order.Date}}
+		BuyPrice: datedMetric{Amount: order.Price, Date: order.Datetime}}
 
 	portfolio.ActivePositions = append(portfolio.ActivePositions, &positionToBuy)
 
@@ -124,7 +124,8 @@ Loop:
 	return positionFound
 }
 
-// Index ...TODO
+// Index structs allow for the use of a benchmark to compare financial performance,
+// Index could refer to one Security or many.
 type Index struct {
 	Instruments map[string]*Security
 }
