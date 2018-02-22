@@ -2,7 +2,6 @@ package porttools
 
 import (
 	"encoding/csv"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -11,17 +10,6 @@ import (
 )
 
 func main() {
-	file, err := os.Open("test.py")
-	if err != nil {
-		log.Fatal("File cannot load")
-	}
-	r := csv.NewReader(file)
-	defer file.Close()
-
-	record, err := r.Read()
-	for err != io.EOF {
-		go func() { fmt.Println(record) }()
-	}
 
 	// example architecture
 	// 	stream <- Tick
@@ -36,7 +24,7 @@ func main() {
 	// 	exampleTick := Tick{Ticker: "AAPL", Price: 101.14, Volume: 20000.00, Datetime: time.Now()}
 
 	// go func() {
-	// 	if inChannel, exists := ticksIn[exampleTick.Ticker]; !exists {
+	// 	if recordChannel, exists := ticksIn[exampleTick.Ticker]; !exists {
 	// 		ticksIn[exampleTick.Ticker] = make(chan Tick)
 	// 	}
 	// 	ticksIn[exampleTick.Ticker] <- exampleTick
@@ -47,15 +35,32 @@ func main() {
 
 // DataFeed TODO
 func DataFeed(fileName string) error {
+
+	recordChan := loadRecords(fileName)
+	tickChan := loadTicks(recordChan)
+	processTicks(tickChan)
+
+	// 	// implement goroutine for []string
+	// 	go func(recordChan <-chan *Tick) {
+	// 		for range recordChan {
+	// 			go processTick(<-recordChan)
+	// 		}
+	// 	}(tickChan)
+	// }
+
+	return nil
+}
+
+func loadRecords(fileName string) <-chan []string {
+	out := make(chan []string)
+
 	file, err := os.Open(fileName)
+	defer file.Close()
+
 	if err != nil {
 		log.Fatal("File cannot load")
 	}
 	r := csv.NewReader(file)
-	defer file.Close()
-
-	inChan := make(chan []string)
-	tickChan := make(chan *Tick)
 
 	go func() {
 		for {
@@ -63,61 +68,61 @@ func DataFeed(fileName string) error {
 				if err == io.EOF {
 					break
 				}
-				inChan <- record
+			} else {
+				out <- record
 			}
-
-			go func(inChan <-chan *Tick) {
-				for range inChan {
-					go processTick(<-inChan)
-				}
-			}(tickChan)
 		}
+		close(out)
 	}()
 
-	return nil
+	return out
 }
 
-func createTick(record []string, outChan chan<- *Tick) error {
-	tick := new(Tick)
+func loadTicks(in <-chan []string) <-chan *Tick {
+	out := make(chan *Tick)
+	var ticksLooped int
 
-	if price, err := strconv.ParseFloat(record[0], 64); err != nil {
-		return err
-	} else {
-		tick.Price = price
-	}
-
-	if volume, err := strconv.ParseFloat(record[1], 64); err != nil {
-		return err
-	} else {
-		tick.Volume = volume
-	}
-
-	if bidSize, err := strconv.ParseFloat(record[2], 64); err != nil {
-		return err
-	} else {
-		tick.BidSize = bidSize
-	}
-
-	if askSize, err := strconv.ParseFloat(record[3], 64); err != nil {
-		return err
-	} else {
-		tick.AskSize = askSize
-	}
-
-	if datetime, err := time.Parse("Jan 2, 2006 10:04:05.000000000", record[4]); err != nil {
-		return err
-	} else {
-		tick.Datetime = datetime
-	}
-
-	outChan <- tick
-	return nil
+	go func() {
+		for record := range in {
+			tick, ok := createTick(record)
+			if ok == true {
+				out <- tick
+			} else {
+				log.Printf("Tick #%d not created due to bad format", ticksLooped)
+			}
+		}
+		close(out)
+	}()
+	return out
 }
 
-func processTick(tick *Tick) (ok bool) {
-	// for tick := range tickChan {
+func createTick(record []string) (tick *Tick, ok bool) {
+	var priceErr, volumeErr, askErr, bidErr, dateErr error
+	ok = true
 
-	//
-	// }
-	return true
+	if tick.Price, priceErr = strconv.ParseFloat(record[0], 64); priceErr != nil {
+		return nil, !ok
+	}
+	if tick.Volume, volumeErr = strconv.ParseFloat(record[1], 64); volumeErr != nil {
+		return nil, !ok
+	}
+	if tick.BidSize, bidErr = strconv.ParseFloat(record[2], 64); bidErr != nil {
+		return nil, !ok
+	}
+	if tick.AskSize, askErr = strconv.ParseFloat(record[3], 64); askErr != nil {
+		return nil, !ok
+	}
+	if tick.Datetime, dateErr = time.Parse("Jan 2, 2006 100405.000000000", record[4]); dateErr != nil {
+		return nil, !ok
+	}
+	return tick, ok
+}
+
+func processTicks(in <-chan *Tick) {
+	go func() {
+		// for tick := range in {
+		//
+		// }
+	}()
+
 }
