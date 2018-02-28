@@ -51,16 +51,15 @@ type Position struct {
 func (pos *Position) update(tick Tick) {
 	pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
 
-	pos.AvgPrice = func(pos *Position, tick Tick) float64 {
-		s := pos.AvgPrice*float64(pos.NumTicks) + tick.Price
-		return s / float64(pos.NumTicks+1)
-	}(pos, tick)
-
-	pos.NumTicks++
-
 }
 
 func (pos *Position) updateMetrics(tick Tick) (ok bool) {
+	pos.AvgPrice = func() float64 {
+		numerator := pos.AvgPrice*float64(pos.NumTicks) + tick.Price
+		return numerator / float64(pos.NumTicks+1)
+	}()
+	pos.NumTicks++
+
 	pos.MaxPrice = func() datedMetric {
 		if tick.Price >= pos.MaxPrice.Amount {
 			return datedMetric{Amount: tick.Price, Date: tick.Datetime}
@@ -74,15 +73,21 @@ func (pos *Position) updateMetrics(tick Tick) (ok bool) {
 		}
 		return pos.MinPrice
 	}()
-
 	return true
 }
 
-func (pos *Position) sellShares(order *Order) *Position {
-	pos.Volume = order.Volume
-	pos.SellPrice = datedMetric{Amount: order.Price, Date: order.Datetime}
+func (pos *Position) sellShares(order *Order, amtToSell float64) *Position {
 
-	return pos
+	soldPos := func() *Position {
+		posSold := *pos
+		posSold.Volume = amtToSell
+		posSold.SellPrice = datedMetric{order.Price, order.Datetime}
+		return &posSold
+	}()
+	// Update active volume for pos
+	pos.Volume = pos.Volume - amtToSell
+
+	return soldPos
 }
 
 // Tick structs holds information about a financial asset at a specific point in time.
@@ -97,13 +102,14 @@ type Tick struct {
 
 // Order structs hold information referring to the details of the execution of a financial asset transaction.
 type Order struct {
-	Status          OrderStatus
-	TransactionType TransactionType
-	OrderType       OrderType
-	Ticker          string
-	Price           float64
-	Volume          float64
-	Datetime        time.Time
+	// it's either buy or sell
+	Buy      bool
+	Status   OrderStatus
+	Logic    TradeLogic
+	Ticker   string
+	Price    float64
+	Volume   float64
+	Datetime time.Time
 }
 
 // OrderStatus variables refer to a status of an order's execution.
@@ -116,24 +122,15 @@ const (
 	expired // 3
 )
 
-// OrderType is used to identify when the order should be executed.
-type OrderType int
+// TradeLogic is used to identify when the order should be executed.
+type TradeLogic int
 
 const (
-	market OrderType = iota // 0
+	market TradeLogic = iota // 0
 	limit
 	stopLimit
 	stopLoss
 	day // 4
-)
-
-// TransactionType used to identify either a buy or a sell.
-type TransactionType int
-
-// Implement TransactionType enum.
-const (
-	Buy TransactionType = iota
-	Sell
 )
 
 // Kwarg struct allows for add'l args/attrs to a class or func.
