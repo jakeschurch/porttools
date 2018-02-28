@@ -2,8 +2,54 @@
 package porttools
 
 import (
+	"bytes"
+	"strconv"
 	"time"
 )
+
+type Currency uint64
+
+// NOTE:is this even needed?
+// func NewCurrency(in string) {
+// 	strconv.Itoa(in)
+// }
+
+func (c Currency) String() string {
+	str := strconv.Itoa(c)
+
+	b := bytes.NewBufferString(str)
+	numCommas := (b.Len() - 2) / 3
+
+	j := 0
+	out := make([]byte, b.Len()+numCommas+2) // 2 extra placeholders for a `$` and a `.`
+	for i, v := range b.Bytes() {
+		if i == (b.Len() - 2) {
+			out[j], _ = bytes.NewBufferString(".").ReadByte()
+			j++
+		} else if (i-1)%3 == 0 {
+			out[j], _ = bytes.NewBufferString(",").ReadByte()
+			j++
+		} else if i == 0 {
+			out[j], _ = bytes.NewBufferString("$").ReadByte()
+			j++
+		}
+		out[j] = v
+		j++
+	}
+	return string(out)
+}
+
+// Security structs hold information regarding a financial asset for the entire
+// life of the financial asset in a trading environment. Because a Security struct
+// holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
+type Security struct {
+	Ticker                        string
+	NumTicks                      int
+	LastPrice, MaxPrice, MinPrice datedMetric
+	MaxVolume, MinVolume          datedMetric
+	BuyPrice, SellPrice           datedMetric
+	AvgPrice, AvgVolume           Currency, float64
+}
 
 // NewSecurity instantiates a new security from Tick data.
 func NewSecurity(tick Tick) (newSecurity *Security) {
@@ -17,24 +63,12 @@ func NewSecurity(tick Tick) (newSecurity *Security) {
 		MaxVolume: firstVolume, MinVolume: firstVolume}
 }
 
-// Security structs hold information regarding a financial asset for the entire
-// life of the financial asset in a trading environment. Because a Security struct
-// holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
-type Security struct {
-	Ticker                        string
-	NumTicks                      int
-	LastPrice, MaxPrice, MinPrice datedMetric
-	MaxVolume, MinVolume          datedMetric
-	BuyPrice, SellPrice           datedMetric
-	AvgPrice, AvgVolume           float64
-}
-
-func (security *Security) update(tick Tick) {
+func (security *Security) updateMetrics(tick Tick) {
 	// TODO
 }
 
 type datedMetric struct {
-	Amount float64
+	Amount Currency
 	Date   time.Time
 }
 
@@ -43,20 +77,20 @@ type Position struct {
 	Ticker                        string
 	Volume                        float64
 	NumTicks                      int
-	AvgPrice                      float64
+	AvgPrice                      Currency
 	LastPrice, MaxPrice, MinPrice datedMetric
 	BuyPrice, SellPrice           datedMetric
 }
 
+// TODO: favor updateMetrics instad
 func (pos *Position) update(tick Tick) {
 	pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
-
 }
 
 func (pos *Position) updateMetrics(tick Tick) (ok bool) {
-	pos.AvgPrice = func() float64 {
-		numerator := pos.AvgPrice*float64(pos.NumTicks) + tick.Price
-		return numerator / float64(pos.NumTicks+1)
+	pos.AvgPrice = func() Currency {
+		numerator := (pos.AvgPrice * pos.NumTicks) + tick.Price
+		return numerator / (pos.NumTicks + 1)
 	}()
 	pos.NumTicks++
 
@@ -76,6 +110,7 @@ func (pos *Position) updateMetrics(tick Tick) (ok bool) {
 	return true
 }
 
+// TODO: Move this
 func (pos *Position) sellShares(order *Order, amtToSell float64) *Position {
 
 	soldPos := func() *Position {
@@ -133,6 +168,7 @@ const (
 	day // 4
 )
 
+// NOTE: is this really needed?
 // Kwarg struct allows for add'l args/attrs to a class or func.
 type Kwarg struct {
 	name  string

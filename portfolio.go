@@ -5,8 +5,8 @@ package porttools
 type CostMethod int
 
 const (
-	fifo CostMethod = iota - 1
-	lifo
+	lifo CostMethod = iota - 1
+	fifo
 )
 
 // Portfolio structs refer to the aggregation of positions traded by a broker.
@@ -14,7 +14,7 @@ type Portfolio struct {
 	ActivePositions map[string][]*Position
 	ClosedPositions map[string][]*Position
 	Orders          []*Order
-	Cash            float64
+	Cash            Currency
 	Benchmark       *Index
 }
 
@@ -27,7 +27,13 @@ func (port *Portfolio) Transact(order *Order, costMethod CostMethod) (err error)
 
 	switch order.Buy {
 	case false:
-		port.Sell(order, costMethod)
+
+		switch costMethod {
+		case fifo:
+			port.Sell(order, costMethod)
+		case lifo:
+			port.Sell(order, CostMethod(len(port.ActivePositions[order.Ticker])-1))
+		}
 	case true:
 		port.Buy(order)
 	}
