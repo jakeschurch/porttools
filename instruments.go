@@ -66,8 +66,38 @@ func NewSecurity(tick Tick) *Security {
 	}
 }
 
-// TODO updateMetrics ...
-func (security *Security) updateMetrics(tick Tick) {
+func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
+	numerator := lastAvg*Amount(nTicks) + tickAmt
+	return numerator / (Amount(nTicks) + 1)
+}
+
+func (s *Security) updateMetrics(tick Tick) {
+	go func() {
+		s.AvgPrice = newAvg(s.AvgPrice, s.NumTicks, tick.Price)
+		s.AvgVolume = newAvg(s.AvgVolume, s.NumTicks, tick.Volume)
+		s.LastPrice = datedMetric{tick.Price, tick.Datetime}
+		s.NumTicks++
+	}()
+
+	go func() {
+		if tick.Price >= s.MaxPrice.Amount {
+			s.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
+			return
+		}
+		if tick.Price <= s.MinPrice.Amount {
+			s.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
+		}
+	}()
+
+	go func() {
+		if tick.Volume >= s.MaxVolume.Amount {
+			s.MaxVolume = datedMetric{Amount: tick.Volume, Date: tick.Datetime}
+			return
+		}
+		if tick.Volume <= s.MinVolume.Amount {
+			s.MinVolume = datedMetric{Amount: tick.Volume, Date: tick.Datetime}
+		}
+	}()
 
 }
 
@@ -87,28 +117,22 @@ type Position struct {
 }
 
 func (pos *Position) updateMetrics(tick Tick) (ok bool) {
-	pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
-
-	pos.AvgPrice = func() Amount {
-		numerator := (pos.AvgPrice * Amount(pos.NumTicks)) + tick.Price
-		return numerator / (Amount(pos.NumTicks) + 1)
+	go func() {
+		pos.AvgPrice = newAvg(pos.AvgPrice, pos.NumTicks, tick.Price)
+		pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
+		pos.NumTicks++
 	}()
-	pos.NumTicks++
 
-	pos.MaxPrice = func() datedMetric {
+	go func() {
 		if tick.Price >= pos.MaxPrice.Amount {
-			return datedMetric{Amount: tick.Price, Date: tick.Datetime}
+			pos.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
+			return
 		}
-		return pos.MaxPrice
+		if tick.Price <= pos.MinPrice.Amount {
+			pos.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
+		}
 	}()
 
-	pos.MinPrice = func() datedMetric {
-		if tick.Price <= pos.MinPrice.Amount {
-			return datedMetric{Amount: tick.Price, Date: tick.Datetime}
-		}
-		return pos.MinPrice
-	}()
-	return true
 }
 
 // Tick structs holds information about a financial asset at a specific point in time.
