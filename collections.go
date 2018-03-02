@@ -1,35 +1,63 @@
 package porttools
 
 // PositionSlice is a slice that holds pointer values to Position type variables
-type positionSlice []*Position
+type positionsSlice struct {
+	len       int
+	positions []*Position
+}
 
-// RemoveFromActive delete's a Portfolio's active position.
-func (port *Portfolio) RemoveFromActive(toRemove *Position) {
-	j := 0
-	pSlice := port.ActivePositions[toRemove.Ticker]
-	for _, val := range pSlice {
-		if val != toRemove {
-			pSlice[j] = val
-			j++
-		}
+func (slice *positionsSlice) Push(pos *Position) {
+	slice.len++
+	if slice.len-1 == 0 {
+		slice.positions[0] = pos
+		return
 	}
+	slice.positions[slice.len] = pos
+	return
+}
+
+func (slice *positionsSlice) Pop(costMethod CostMethod) (pos *Position) {
+	if slice.len == 0 {
+		return nil
+	}
+
+	switch costMethod {
+	case fifo:
+		pos = slice.positions[0]
+		slice.positions = slice.positions[0:]
+	case lifo:
+		pos = slice.positions[slice.len]
+		slice.positions = slice.positions[:slice.len]
+	}
+	slice.len--
+	return
+}
+func (slice *positionsSlice) Peek(costMethod CostMethod) (pos *Position) {
+	if slice.len == 0 {
+		return nil
+	}
+	switch costMethod {
+	case fifo:
+		pos = slice.positions[0]
+	case lifo:
+		pos = slice.positions[slice.len]
+	}
+	return
 }
 
 // Portfolio structs refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	ActivePositions map[string][]*Position
-	ClosedPositions map[string][]*Position
-	Orders          []*Order
-	Cash            Amount
-	Benchmark       *Index
+	Active    map[string]*positionsSlice
+	Closed    map[string]*positionsSlice
+	Orders    []*Order // NOTE: may not need this
+	Cash      Amount
+	Benchmark *Index
 }
 
 // TODO Look into concurrent access of struct pointers
 func (port *Portfolio) updatePosition(tick *Tick) {
-	for _, pos := range port.ActivePositions[tick.Ticker] {
-		if pos.Ticker == tick.Ticker {
-			pos.updateMetrics(*tick)
-		}
+	for _, pos := range port.Active[tick.Ticker].positions {
+		pos.updateMetrics(*tick)
 	}
 }
 
