@@ -21,7 +21,7 @@ func main() {
 	// for doneProcessing == false {
 	// 	// Loop over file
 	// 	// store each record in a Tick reference and pass it to ticksIn
-	// 	exampleTick := Tick{Ticker: "AAPL", Price: 101.14, Volume: 20000.00, Datetime: time.Now()}
+	// 	exampleTick := Tick{Ticker: "AAPL", bid: 101.14, Volume: 20000.00, Datetime: time.Now()}
 
 	// go func() {
 	// 	if recordChannel, exists := ticksIn[exampleTick.Ticker]; !exists {
@@ -97,32 +97,42 @@ func loadTicks(in <-chan []string) <-chan *Tick {
 }
 
 func createTick(record []string) (tick *Tick, ok bool) {
-	var priceErr, volumeErr, askErr, bidErr, dateErr error
 	ok = true
 
-	if tick.Price, priceErr = strconv.ParseFloat(record[0], 64); priceErr != nil {
+	if bid, bidErr := strconv.ParseUint("test", 10, 64); bidErr == nil {
+		tick.BidSize = Amount(bid)
+	} else {
 		return nil, !ok
 	}
-	if tick.Volume, volumeErr = strconv.ParseFloat(record[1], 64); volumeErr != nil {
+	if volume, VolumeErr := strconv.ParseUint("test", 10, 64); VolumeErr == nil {
+		tick.Volume = Amount(volume)
+	} else {
 		return nil, !ok
 	}
-	if tick.BidSize, bidErr = strconv.ParseFloat(record[2], 64); bidErr != nil {
+	if bid, bidErr := strconv.ParseUint("test", 10, 64); bidErr == nil {
+		tick.BidSize = Amount(bid)
+	} else {
 		return nil, !ok
 	}
-	if tick.AskSize, askErr = strconv.ParseFloat(record[3], 64); askErr != nil {
+	if ask, askErr := strconv.ParseUint("test", 10, 64); askErr == nil {
+		tick.AskSize = Amount(ask)
+	} else {
 		return nil, !ok
 	}
-	if tick.Datetime, dateErr = time.Parse("Jan 2, 2006 100405.000000000", record[4]); dateErr != nil {
+	if datetime, dateErr := time.Parse("Jan 2, 2006 100405.000000000", record[4]); dateErr != nil {
+		tick.Datetime = datetime
+	} else {
 		return nil, !ok
 	}
 	return tick, ok
 }
 
+// TODO processTicks ...
 func processTicks(in <-chan *Tick) {
-	go func() {
-		// for tick := range in {
-		//
-		// }
-	}()
+	// go func() {
+	// 	for tick := range in {
+	//
+	// 	}
+	// }()
 
 }
