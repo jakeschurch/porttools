@@ -45,3 +45,10 @@ type Node struct {
 func NewNode(data interface{}) *Node {
 	return &Node{data: data}
 }
+
+// Kwarg struct allows for add'l args/attrs to a class or func.
+// NOTE: is this really needed?
+type Kwarg struct {
+	name  string
+	value interface{}
+}

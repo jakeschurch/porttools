@@ -15,9 +15,14 @@ import (
 // Amount ... TODO
 type Amount uint64
 
+// ParseFloat ... TODO
+func ParseFloat(float float64) Amount {
+	return Amount(float * 100)
+}
+
 // Currency ... TODO
-func (c Amount) Currency() string {
-	str := strconv.Itoa(int(c))
+func (amt Amount) Currency() string {
+	str := strconv.Itoa(int(amt))
 
 	b := bytes.NewBufferString(str)
 	numCommas := (b.Len() - 2) / 3
@@ -45,12 +50,15 @@ func (c Amount) Currency() string {
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
 type Security struct {
-	Ticker                        string
-	NumTicks                      uint
-	AvgVolume, AvgPrice           Amount
-	LastPrice, MaxPrice, MinPrice datedMetric
-	MaxVolume, MinVolume          datedMetric
-	BuyPrice, SellPrice           datedMetric
+	Ticker               string      `json:"ticker"`
+	NumTicks             uint        `json:"numTicks"`
+	AvgVolume            Amount      `json:"avgVolume"`
+	AvgPrice             Amount      `json:"avgPrice"`
+	LastPrice            datedMetric `json:"lastPrice"`
+	MaxPrice             datedMetric `json:"maxPrice"`
+	MinPrice             datedMetric `json:"minPrice"`
+	MaxVolume, MinVolume datedMetric `json:"maxVolume"`
+	BuyPrice, SellPrice  datedMetric `json:"buyPrice"`
 }
 
 // NewSecurity instantiates a new security from Tick data.
@@ -72,14 +80,13 @@ func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
 }
 
 func (s *Security) updateMetrics(tick Tick) {
-	go func() {
+	func() {
 		s.AvgPrice = newAvg(s.AvgPrice, s.NumTicks, tick.Price)
 		s.AvgVolume = newAvg(s.AvgVolume, s.NumTicks, tick.Volume)
 		s.LastPrice = datedMetric{tick.Price, tick.Datetime}
 		s.NumTicks++
 	}()
-
-	go func() {
+	func() {
 		if tick.Price >= s.MaxPrice.Amount {
 			s.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
 			return
@@ -88,8 +95,7 @@ func (s *Security) updateMetrics(tick Tick) {
 			s.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
 		}
 	}()
-
-	go func() {
+	func() {
 		if tick.Volume >= s.MaxVolume.Amount {
 			s.MaxVolume = datedMetric{Amount: tick.Volume, Date: tick.Datetime}
 			return
@@ -98,31 +104,29 @@ func (s *Security) updateMetrics(tick Tick) {
 			s.MinVolume = datedMetric{Amount: tick.Volume, Date: tick.Datetime}
 		}
 	}()
-
 }
 
 type datedMetric struct {
-	Amount Amount
-	Date   time.Time
+	Amount Amount    `json:"amount"`
+	Date   time.Time `json:"date"`
 }
 
 // Position structs refer the holding of a financial asset.
 type Position struct {
-	Ticker                        string
-	Volume                        Amount
-	NumTicks                      uint
-	AvgPrice                      Amount
-	LastPrice, MaxPrice, MinPrice datedMetric
-	BuyPrice, SellPrice           datedMetric
+	Ticker                        string      `json:"ticker"`
+	Volume                        Amount      `json:"volume"`
+	NumTicks                      uint        `json:"numTicks"`
+	AvgPrice                      Amount      `json:"avgPrice"`
+	LastPrice, MaxPrice, MinPrice datedMetric `json:"lastPrice"`
+	BuyPrice, SellPrice           datedMetric `json:"buyPrice"`
 }
 
-func (pos *Position) updateMetrics(tick Tick) (ok bool) {
+func (pos *Position) updateMetrics(tick Tick) {
 	go func() {
 		pos.AvgPrice = newAvg(pos.AvgPrice, pos.NumTicks, tick.Price)
 		pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
 		pos.NumTicks++
 	}()
-
 	go func() {
 		if tick.Price >= pos.MaxPrice.Amount {
 			pos.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
@@ -132,22 +136,14 @@ func (pos *Position) updateMetrics(tick Tick) (ok bool) {
 			pos.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
 		}
 	}()
-
 }
 
 // Tick structs holds information about a financial asset at a specific point in time.
 type Tick struct {
-	Ticker   string
-	Price    Amount
-	Volume   Amount
-	BidSize  Amount
-	AskSize  Amount
-	Datetime time.Time
-}
-
-// Kwarg struct allows for add'l args/attrs to a class or func.
-// NOTE: is this really needed?
-type Kwarg struct {
-	name  string
-	value interface{}
+	Ticker   string    `json:"ticker"`
+	Price    Amount    `json:"price"`
+	Volume   Amount    `json:"volume"`
+	BidSize  Amount    `json:"bidSize"`
+	AskSize  Amount    `json:"askSize"`
+	Datetime time.Time `json:"datetime"`
 }

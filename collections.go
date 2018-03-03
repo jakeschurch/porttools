@@ -1,5 +1,7 @@
 package porttools
 
+import "sync"
+
 // PositionSlice is a slice that holds pointer values to Position type variables
 type positionsSlice struct {
 	len       int
@@ -47,11 +49,13 @@ func (slice *positionsSlice) Peek(costMethod CostMethod) (pos *Position) {
 
 // Portfolio structs refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	Active    map[string]*positionsSlice
-	Closed    map[string]*positionsSlice
-	Orders    []*Order // NOTE: may not need this
-	Cash      Amount
-	Benchmark *Index
+	Active map[string]*positionsSlice `json:"active"`
+	Closed map[string]*positionsSlice `json:"closed"`
+	// NOTE: may not need this
+	Orders    []*Order `json:"orders"`
+	Cash      Amount   `json:"cash"`
+	Benchmark *Index   `json:"benchmark"`
+	mutex     sync.Mutex
 }
 
 // TODO Look into concurrent access of struct pointers
