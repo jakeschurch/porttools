@@ -2,13 +2,20 @@ package porttools
 
 import "sync"
 
-// PositionSlice is a slice that holds pointer values to Position type variables
-type positionsSlice struct {
-	len       int
-	positions []*Position
+func newPositionSlice() *positionSlice {
+	return &positionSlice{len: 0, positions: make([]*Position, 0)}
 }
 
-func (slice *positionsSlice) Push(pos *Position) {
+// PositionSlice is a slice that holds pointer values to Position type variables
+type positionSlice struct {
+	len       int
+	positions []*Position
+	// tickChan chan Tick
+	// ticker String
+	// totalPositions
+}
+
+func (slice *positionSlice) Push(pos *Position) {
 	slice.len++
 	if slice.len-1 == 0 {
 		slice.positions[0] = pos
@@ -18,11 +25,10 @@ func (slice *positionsSlice) Push(pos *Position) {
 	return
 }
 
-func (slice *positionsSlice) Pop(costMethod CostMethod) (pos *Position) {
+func (slice *positionSlice) Pop(costMethod CostMethod) (pos *Position) {
 	if slice.len == 0 {
 		return nil
 	}
-
 	switch costMethod {
 	case fifo:
 		pos = slice.positions[0]
@@ -34,7 +40,7 @@ func (slice *positionsSlice) Pop(costMethod CostMethod) (pos *Position) {
 	slice.len--
 	return
 }
-func (slice *positionsSlice) Peek(costMethod CostMethod) (pos *Position) {
+func (slice *positionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	if slice.len == 0 {
 		return nil
 	}
@@ -47,21 +53,21 @@ func (slice *positionsSlice) Peek(costMethod CostMethod) (pos *Position) {
 	return
 }
 
-// Portfolio structs refer to the aggregation of positions traded by a broker.
+// Portfolio struct refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	Active map[string]*positionsSlice `json:"active"`
-	Closed map[string]*positionsSlice `json:"closed"`
-	// NOTE: may not need this
-	Orders    []*Order `json:"orders"`
-	Cash      Amount   `json:"cash"`
-	Benchmark *Index   `json:"benchmark"`
+	Active    map[string]*positionSlice `json:"active"`
+	Closed    map[string]*positionSlice `json:"closed"`
+	Orders    []*Order                  `json:"orders"` // NOTE: may not need this
+	Cash      Amount                    `json:"cash"`
+	Benchmark *Index                    `json:"benchmark"`
 	mutex     sync.Mutex
+	// IDEA: max/min equity as datedmetrics
 }
 
 // TODO Look into concurrent access of struct pointers
-func (port *Portfolio) updatePosition(tick *Tick) {
+func (port *Portfolio) updatePosition(tick Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
-		pos.updateMetrics(*tick)
+		pos.updateMetrics(tick)
 	}
 }
 
