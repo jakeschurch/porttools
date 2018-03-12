@@ -15,7 +15,9 @@ type positionSlice struct {
 	// totalPositions
 }
 
-func (slice *positionSlice) Push(pos *Position) {
+// Push adds position to position slice,
+// updates total Volume of all positions in slice.
+func (slice *PositionSlice) Push(pos *Position) {
 	slice.len++
 	if slice.len-1 == 0 {
 		slice.positions[0] = pos
@@ -25,9 +27,12 @@ func (slice *positionSlice) Push(pos *Position) {
 	return
 }
 
-func (slice *positionSlice) Pop(costMethod CostMethod) (pos *Position) {
+// Pop removes element from position slice.
+// If fifo is passed as costmethod, the position at index 0 will be popped.
+// Otherwise if lifo is passed as costmethod, the position at the last index will be popped.
+func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error) {
 	if slice.len == 0 {
-		return nil
+		return nil, errors.New("Buffer underflow")
 	}
 	switch costMethod {
 	case fifo:
@@ -40,7 +45,9 @@ func (slice *positionSlice) Pop(costMethod CostMethod) (pos *Position) {
 	slice.len--
 	return
 }
-func (slice *positionSlice) Peek(costMethod CostMethod) (pos *Position) {
+
+// Peek
+func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	if slice.len == 0 {
 		return nil
 	}
