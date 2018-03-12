@@ -1,18 +1,20 @@
 package porttools
 
-import "sync"
+import (
+	"errors"
+	"sync"
+)
 
-func newPositionSlice() *positionSlice {
-	return &positionSlice{len: 0, positions: make([]*Position, 0)}
+func newPositionSlice() *PositionSlice {
+	return &PositionSlice{
+		len: 0, positions: make([]*Position, 0), totalAmt: 0}
 }
 
 // PositionSlice is a slice that holds pointer values to Position type variables
-type positionSlice struct {
+type PositionSlice struct {
 	len       int
 	positions []*Position
-	// tickChan chan Tick
-	// ticker String
-	// totalPositions
+	totalAmt  Amount
 }
 
 // Push adds position to position slice,
@@ -60,14 +62,24 @@ func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	return
 }
 
+// NewPortfolio creates a new instance of a Portfolio struct.
+func NewPortfolio(cashAmt Amount, benchmark *Index) *Portfolio {
+	return &Portfolio{
+		Active:    make(map[string]*PositionSlice),
+		Closed:    make(map[string]*PositionSlice),
+		Cash:      cashAmt,
+		Benchmark: benchmark,
+	}
+}
+
 // Portfolio struct refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	Active    map[string]*positionSlice `json:"active"`
-	Closed    map[string]*positionSlice `json:"closed"`
+	Active    map[string]*PositionSlice `json:"active"`
+	Closed    map[string]*PositionSlice `json:"closed"`
 	Orders    []*Order                  `json:"orders"` // NOTE: may not need this
 	Cash      Amount                    `json:"cash"`
 	Benchmark *Index                    `json:"benchmark"`
-	mutex     sync.Mutex
+	sync.RWMutex
 	// IDEA: max/min equity as datedmetrics
 }
 
