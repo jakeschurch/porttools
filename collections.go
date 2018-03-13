@@ -48,7 +48,7 @@ func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error
 	return
 }
 
-// Peek
+// Peek returns the element that would have been Pop-ed from the position slice.
 func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	if slice.len == 0 {
 		return nil
@@ -61,6 +61,17 @@ func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	}
 	return
 }
+
+// // GetActive ... XXX
+// func (port *Portfolio) GetActive(key string, errCh <-chan error) (*PositionSlice, bool) {
+// 	port.mutex.Lock()
+// 	posSlice, ok := port.Active[key]
+// 	port.mutex.Unlock()
+// 	if !ok {
+// 		return nil, !ok
+// 	}
+// 	return posSlice, ok
+// }
 
 // NewPortfolio creates a new instance of a Portfolio struct.
 func NewPortfolio(cashAmt Amount, benchmark *Index) *Portfolio {

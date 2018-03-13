@@ -1,0 +1,31 @@
+{
+    "file": {
+        "fileGlob": "/foo/bar/*",
+        "exampleDate": "Jan 5, 2006",
+        "delim": "|",
+        "columns": {
+            "ticker": 0,
+            "timestamp": 6,
+            "volume": 1,
+            "bidPrice": 2,
+            "bidSize": 3,
+            "askPrice": 4,
+            "askSize": 5
+        }
+    },
+    "backtest": {
+        "ignoreSecurities": ["AAPL"],
+        "Slippage": 0.00,
+        "Commission": 0.00
+    },
+    "simulation": {
+        "startDate": "10/20/2015",
+        "endDate": "10/25/2015",
+        "barRate": 2,
+    },
+    "benchmark": {
+        "use": true,
+        "update": false,
+
+    }
+}

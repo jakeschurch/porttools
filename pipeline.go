@@ -2,10 +2,12 @@ package porttools
 
 import (
 	"encoding/csv"
-	"io"
+	"errors"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -33,105 +35,132 @@ func notMain() {
 	// only see different trades -> simulate market that has traders in doing different trades and what is the aggregate position look like
 }
 
-// DataFeed TODO
-func DataFeed(fileName string) error {
-	// recordCh := loadRecords(fileName)
-	// loadTicks(tickCh, recordCh)
-	// processTicks(tickCh)
-	//
-	// go func() {
-	// 	for {
-	// 		select {
-	// 		case msg := <-recordCh:
-	// 			loadTicks(msg)
-	// 		}
-	// 	}
-	// }()
+// DataFeed ... TODO
+func DataFeed(filename string) error {
 
-	// 	// implement goroutine for []string
-	// 	go func(recordChan <-chan *Tick) {
-	// 		for range recordChan {
-	// 			go processTick(<-recordChan)
-	// 		}
-	// 	}(tickChan)
-	// }
+	cfg, cfgErr := LoadConfig(filename)
+	if cfgErr != nil {
+		return cfgErr
+	}
+	// TODO: add pre-process portfolio function
+
+	// REVIEW: sort pattern of filepath.Glob?
+	fileGlob, globErr := filepath.Glob(cfg.File.Glob)
+	if globErr != nil {
+		return globErr
+	}
+
+	fileNoExt := strings.TrimSuffix(filename, filepath.Ext(filename))
+	durationOp := &simDuration{
+		// HACK: manually setting date
+		lastDate: time.Parse(cfg.File.ExampleDate, fileNoExt),
+		barRate:  cfg.Simulation.BarRate,
+	}
+
+	for _, dataFile := range fileGlob {
+		recordFile, fileErr := os.Open(dataFile)
+		defer recordFile.Close()
+
+		if fileErr != nil {
+			log.Fatal("File cannot be loaded")
+		}
+
+		r := csv.NewReader(recordFile)
+		r.Comma = cfg.File.Delim
+
+		recordChan := loadRecords(r)
+		tickChan := loadTicks(recordChan, cfg)
+
+	}
 
 	return nil
 }
 
-func loadRecords(fileName string) <-chan []string {
-	out := make(chan []string)
-
-	file, err := os.Open(fileName)
-	defer file.Close()
-
-	if err != nil {
-		log.Fatal("File cannot load")
+func newSimDuraiton(lastDate time.Time, barRate BarDuration) *simDuration {
+	simDuration := &simDuration{lastDate: lastDate, barRate: barRate}
+	switch barRate {
+	case time.Nanosecond:
+		simDuration.timeUnit = "ns"
+	case time.Microsecond:
+		simDuration.timeUnit = "us"
+	case time.Millisecond:
+		simDuration.timeUnit = "ms"
+	case time.Second:
+		simDuration.timeUnit = "s"
+	case time.Minute:
+		simDuration.timeUnit = "m"
+	case time.Hour:
+		simDuration.timeUnit = "hr"
 	}
-	r := csv.NewReader(file)
-
-	go func() {
-		for {
-			if record, err := r.Read(); err != nil {
-				if err == io.EOF {
-					break
-				}
-			} else {
-				out <- record
-			}
-		}
-		close(out)
-	}()
-	return out
+	return simDuration
 }
 
-func loadTicks(in <-chan []string) <-chan *Tick {
+type simDuration struct {
+	lastDate time.Time
+	barRate  BarDuration
+	timeUnit string
+}
+
+// func loadRecords(r *csv.Reader) <-chan []string {
+// 	errChan := make(chan error, 1)
+// 	out := make(chan []string)
+//
+// 	go func() {
+// 		for {
+// 			record, err := r.Read()
+// 			if err == io.EOF {
+// 				break
+// 			}
+// 			out <- record
+// 		}
+// 		close(out)
+// 	}()
+// 	return out
+// }
+
+// REVIEW: https://play.golang.org/p/Off9_cCiRJ3
+
+func loadTicks(recordChan <-chan []string, cfg *Config, timeOp *simDuration) chan<- *Tick {
 	out := make(chan *Tick)
-	var ticksLooped int
-
 	go func() {
-		for record := range in {
-			tick, ok := createTick(record)
-			if ok == true {
-				out <- tick
-			} else {
-				log.Printf("Tick #%d not created due to bad format", ticksLooped)
+		for record := range recordChan {
+			var tick *Tick
+			tick.Ticker = record[cfg.File.Columns.Ticker]
+
+			bidPrice, bidErr := strconv.ParseFloat(record[cfg.File.Columns.BidPrice], 64)
+			if bidErr != nil {
+				return nil, errors.New("Bid Price could not be parsed")
 			}
+			tick.BidPrice = FloatAmount(bidSize)
+
+			bidSize, bidSzErr := strconv.ParseFloat(record[cfg.File.Columns.BidSize], 64)
+			if bidSzErr != nil {
+				return nil, errors.New("Bid Size could not be parsed")
+			}
+			tick.BidSize = FloatAmount(bidSize)
+
+			askPrice, askErr := strconv.ParseFloat(record[cfg.File.Columns.AskSize], 64)
+			if askErr != nil {
+				return nil, errors.New("Ask Price could not be parsed")
+			}
+			tick.askPrice = FloatAmount(askSize)
+
+			askSize, askSzErr := strconv.ParseFloat(record[cfg.File.Columns.AskPrice], 64)
+			if askSzErr != nil {
+				return nil, errors.New("Ask Size could not be parsed")
+			}
+			tick.askSize = FloatAmount(askSize)
+
+			tickDuration, timeErr := time.ParseDuration(record[cfg.File.Columns.Timestamp] + timeOp.timeUnit)
+			if timeErr != nil {
+				return nil, !ok
+			}
+			tick.Timestamp = timeOp.lastDate.Add(tickDuration)
+			out <- tick
 		}
 		close(out)
 	}()
 	return out
-}
-
-func createTick(record []string) (tick *Tick, ok bool) {
-	ok = true
-
-	if bid, bidErr := strconv.ParseUint("test", 10, 64); bidErr == nil {
-		tick.BidSize = Amount(bid)
-	} else {
-		return nil, !ok
-	}
-	if volume, VolumeErr := strconv.ParseUint("test", 10, 64); VolumeErr == nil {
-		tick.Volume = Amount(volume)
-	} else {
-		return nil, !ok
-	}
-	if bid, bidErr := strconv.ParseUint("test", 10, 64); bidErr == nil {
-		tick.BidSize = Amount(bid)
-	} else {
-		return nil, !ok
-	}
-	if ask, askErr := strconv.ParseUint("test", 10, 64); askErr == nil {
-		tick.AskSize = Amount(ask)
-	} else {
-		return nil, !ok
-	}
-	if datetime, dateErr := time.Parse("Jan 2, 2006 100405.000000000", record[4]); dateErr != nil {
-		tick.Datetime = datetime
-	} else {
-		return nil, !ok
-	}
-	return tick, ok
 }
 
 // TODO processTicks ...
@@ -143,3 +172,21 @@ func processTicks(in <-chan *Tick) {
 	// }()
 
 }
+
+// func loadTicks(in <-chan []string) <-chan *Tick {
+// 	out := make(chan *Tick)
+// 	var ticksLooped int
+//
+// 	go func() {
+// 		for record := range in {
+// 			tick, ok := createTick(record)
+// 			if ok == true {
+// 				out <- tick
+// 			} else {
+// 				log.Printf("Tick #%d not created due to bad format", ticksLooped)
+// 			}
+// 		}
+// 		close(out)
+// 	}()
+// 	return out
+// }

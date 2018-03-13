@@ -16,13 +16,12 @@ type PortfolioLog struct {
 //
 // }
 
-/* TODO:
-- max-drawdown
-- % profitable
-- total num trades
-- winning/losing trades
-- trading period length
-*/
+//
+// - max-drawdown
+// - % profitable
+// - total num trades
+// - winning/losing trades
+// - trading period length
 
 // CostMethod regards the type of accounting management rule
 // is implemented for selling securities.
@@ -82,18 +81,14 @@ func (port *Portfolio) Transact(order *Order, costMethod CostMethod) error {
 			order.Status = canceled
 			port.Orders = append(port.Orders, order)
 			return errors.New("Not enough cash to fulfil order")
-}
-		// Update Cash Amount.
-		port.Lock()
-	port.Cash -= order.Volume * order.Price
-		port.Unlock()
+		}
 
 		// Create new Position and add it to according position slice.
-	posBought := &Position{
-		Ticker: order.Ticker, Volume: order.Volume,
-		BuyPrice: datedMetric{order.Price, order.Datetime},
-	}
-	port.Active[order.Ticker].Push(posBought)
+		posBought := &Position{
+			Ticker: order.Ticker, Volume: order.Volume,
+			BuyPrice: datedMetric{order.Price, order.Datetime},
+		}
+		port.Active[order.Ticker].Push(posBought)
 		port.Active[order.Ticker].totalAmt += posBought.Volume // Update position slice volume.
 
 	case false: // sell
@@ -145,11 +140,13 @@ func (port *Portfolio) sell(order Order, costMethod CostMethod) (err error) {
 		closedPos.Volume = sellAmt
 		closedPos.SellPrice = datedMetric{order.Price, order.Datetime}
 
+		port.Lock()
 		port.Closed[order.Ticker].Push(&closedPos)
 
 		if posToSell.Volume == 0 {
 			port.Closed[order.Ticker].Pop(costMethod)
+		}
+		port.Unlock()
 	}
-}
 	return nil
 }

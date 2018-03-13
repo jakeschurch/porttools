@@ -9,7 +9,7 @@ type portMgtSys struct {
 	MaxDrawdownCap Amount
 }
 
-// TODO: OrderSys ...
+// OrderSys ... TODO
 type OrderSys struct {
 	orderChan chan Order
 }

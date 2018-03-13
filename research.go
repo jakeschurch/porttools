@@ -6,10 +6,10 @@ type algorithm interface {
 	ExitLogic() bool
 }
 
-// TODO: Algorithm ...
+// Algorithm ... TODO
 type Algorithm struct{}
 
-// TODO: Strategy ...
+// Strategy ... TODO
 type Strategy struct {
 	algos []Algorithm
 }
