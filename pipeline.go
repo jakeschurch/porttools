@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func main() {
+func notMain() {
 
 	// example architecture
 	// 	stream <- Tick
@@ -29,16 +29,24 @@ func main() {
 	// 	}
 	// 	ticksIn[exampleTick.Ticker] <- exampleTick
 	// }()
-	// option to throw out securities that arent needed
+	// option to throw out securities that aren't needed
 	// only see different trades -> simulate market that has traders in doing different trades and what is the aggregate position look like
 }
 
 // DataFeed TODO
 func DataFeed(fileName string) error {
-
-	recordChan := loadRecords(fileName)
-	tickChan := loadTicks(recordChan)
-	processTicks(tickChan)
+	// recordCh := loadRecords(fileName)
+	// loadTicks(tickCh, recordCh)
+	// processTicks(tickCh)
+	//
+	// go func() {
+	// 	for {
+	// 		select {
+	// 		case msg := <-recordCh:
+	// 			loadTicks(msg)
+	// 		}
+	// 	}
+	// }()
 
 	// 	// implement goroutine for []string
 	// 	go func(recordChan <-chan *Tick) {
@@ -74,7 +82,6 @@ func loadRecords(fileName string) <-chan []string {
 		}
 		close(out)
 	}()
-
 	return out
 }
 

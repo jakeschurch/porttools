@@ -6,19 +6,18 @@ type Queue struct {
 	values []*Node
 }
 
-// Push stores value in the queue.
-func (queue *Queue) Push(node *Node) {
+// Enqueue stores value in the queue.
+func (queue *Queue) Enqueue(node *Node) {
 	queue.len++
 	if queue.len-1 == 0 {
 		queue.values[0] = node
-		return
+	} else {
+		queue.values[queue.len] = node
 	}
-	queue.values[queue.len] = node
-	return
 }
 
-// Pop removes and returns value from the queue.
-func (queue *Queue) Pop() (node *Node) {
+// Dequeue removes and returns value from the queue.
+func (queue *Queue) Dequeue() (node *Node) {
 	queue.len--
 	if queue.len+1 == 0 {
 		return nil

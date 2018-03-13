@@ -1,14 +1,25 @@
 package porttools
 
-import "sync"
+import (
+	"errors"
+	"sync"
+)
 
-// PositionSlice is a slice that holds pointer values to Position type variables
-type positionsSlice struct {
-	len       int
-	positions []*Position
+func newPositionSlice() *PositionSlice {
+	return &PositionSlice{
+		len: 0, positions: make([]*Position, 0), totalAmt: 0}
 }
 
-func (slice *positionsSlice) Push(pos *Position) {
+// PositionSlice is a slice that holds pointer values to Position type variables
+type PositionSlice struct {
+	len       int
+	positions []*Position
+	totalAmt  Amount
+}
+
+// Push adds position to position slice,
+// updates total Volume of all positions in slice.
+func (slice *PositionSlice) Push(pos *Position) {
 	slice.len++
 	if slice.len-1 == 0 {
 		slice.positions[0] = pos
@@ -18,11 +29,13 @@ func (slice *positionsSlice) Push(pos *Position) {
 	return
 }
 
-func (slice *positionsSlice) Pop(costMethod CostMethod) (pos *Position) {
+// Pop removes element from position slice.
+// If fifo is passed as costmethod, the position at index 0 will be popped.
+// Otherwise if lifo is passed as costmethod, the position at the last index will be popped.
+func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error) {
 	if slice.len == 0 {
-		return nil
+		return nil, errors.New("Buffer underflow")
 	}
-
 	switch costMethod {
 	case fifo:
 		pos = slice.positions[0]
@@ -34,7 +47,9 @@ func (slice *positionsSlice) Pop(costMethod CostMethod) (pos *Position) {
 	slice.len--
 	return
 }
-func (slice *positionsSlice) Peek(costMethod CostMethod) (pos *Position) {
+
+// Peek
+func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	if slice.len == 0 {
 		return nil
 	}
@@ -47,21 +62,31 @@ func (slice *positionsSlice) Peek(costMethod CostMethod) (pos *Position) {
 	return
 }
 
-// Portfolio structs refer to the aggregation of positions traded by a broker.
+// NewPortfolio creates a new instance of a Portfolio struct.
+func NewPortfolio(cashAmt Amount, benchmark *Index) *Portfolio {
+	return &Portfolio{
+		Active:    make(map[string]*PositionSlice),
+		Closed:    make(map[string]*PositionSlice),
+		Cash:      cashAmt,
+		Benchmark: benchmark,
+	}
+}
+
+// Portfolio struct refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	Active map[string]*positionsSlice `json:"active"`
-	Closed map[string]*positionsSlice `json:"closed"`
-	// NOTE: may not need this
-	Orders    []*Order `json:"orders"`
-	Cash      Amount   `json:"cash"`
-	Benchmark *Index   `json:"benchmark"`
-	mutex     sync.Mutex
+	Active    map[string]*PositionSlice `json:"active"`
+	Closed    map[string]*PositionSlice `json:"closed"`
+	Orders    []*Order                  `json:"orders"` // NOTE: may not need this
+	Cash      Amount                    `json:"cash"`
+	Benchmark *Index                    `json:"benchmark"`
+	sync.RWMutex
+	// IDEA: max/min equity as datedmetrics
 }
 
 // TODO Look into concurrent access of struct pointers
-func (port *Portfolio) updatePosition(tick *Tick) {
+func (port *Portfolio) updatePosition(tick Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
-		pos.updateMetrics(*tick)
+		pos.updateMetrics(tick)
 	}
 }
 
