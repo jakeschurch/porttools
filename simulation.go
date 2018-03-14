@@ -27,11 +27,7 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
-<<<<<<< Updated upstream
-	*backtestEngine
-=======
 	*BacktestEngine
->>>>>>> Stashed changes
 	config *Config
 	// Channels
 	closing    chan chan error
@@ -41,7 +37,7 @@ type Simulation struct {
 func (sim *Simulation) run() {
 	done := make(chan bool)
 	var err error
-
+	// TODO:
 	go func() {
 		for {
 			select {
@@ -70,7 +66,6 @@ func (sim *Simulation) loadInput() error {
 		return globErr
 	}
 
-	// IDEA:
 	sim.inputChans = make([]*inputChan, len(fileGlob)+1) // extra bucket for sentinel value
 	sim.inputChans[0] = new(inputChan)
 
@@ -81,32 +76,6 @@ func (sim *Simulation) loadInput() error {
 		}
 	}()
 	return nil
-}
-
-func (sim *Simulation) popFly() {
-	done := make(chan struct{})
-
-	sim.inputChans[0].deconstruct()
-
-	sim.inputChans = sim.inputChans[0:]
-	inChan := sim.inputChans[0]
-	go func() {
-		for tick := range inChan.tickC {
-			go sim.simulateData(tick)
-		}
-		done <- struct{}{}
-	}()
-
-	<-done
-	if len(sim.inputChans) > 1 {
-		sim.popFly()
-	} else {
-		return
-	}
-}
-
-func (sim *Simulation) simulateData(tick *Tick) {
-	// TODO:
 }
 
 func (sim *Simulation) loadData(inChan *inputChan, file string) error {
@@ -137,7 +106,6 @@ func (sim *Simulation) loadData(inChan *inputChan, file string) error {
 	if dateErr != nil {
 		return dateErr
 	}
-
 	go sim.loadTicks(quit, inChan, lastDate)
 
 	<-quit
@@ -196,15 +164,8 @@ type inputChan struct {
 	tickC   chan *Tick
 }
 
-func (ch *inputChan) close() {
+func (ch inputChan) close() {
 	close(ch.recordC)
 	close(ch.tickC)
-	return
-}
-
-func (ch *inputChan) deconstruct() {
-	ch.recordC = nil
-	ch.tickC = nil
-	ch = nil
 	return
 }
