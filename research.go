@@ -23,7 +23,7 @@ type Strategy struct {
 */
 
 // TODO: researchSys ...
-type researchSys struct {
+type TradingMgt struct {
 	Strategy Strategy
 	tickChan chan Tick
 }

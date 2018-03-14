@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-//NOTE: In a contemporary electronic market (circa 2009), low latency trade processing time was qualified as under 10 milliseconds, and ultra-low latency as under 1 millisecond
+// NOTE: In a contemporary electronic market (circa 2009), low latency trade processing time was qualified as under 10 milliseconds, and ultra-low latency as under 1 millisecond
 
 // LoadConfig uses a Json File to populate details regarding configuration.
 func loadConfig(filename string) (config *Config, err error) {
@@ -81,15 +81,3 @@ func (cfg *Config) timeUnit() (timeunit string) {
 
 // BarDuration is used to register tick intake.
 type BarDuration time.Duration
-
-// // QUESTION: is this function needed?
-// func (cfg simConfig) dataFiles(pattern string) ([]string, error) {
-// 	timeunit = filepath.Glob(pattern)
-// 	// QUESTION: is this if statement necessary if Glob is creating
-// 	// 		error for us?
-// 	// if files, err := filepath.Glob(pattern); err != nil {
-// 	// 	return files, err
-// 	// } else {
-// 	// 	return files, nil
-// 	// }
-// }

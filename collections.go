@@ -12,6 +12,7 @@ func newPositionSlice() *PositionSlice {
 
 // PositionSlice is a slice that holds pointer values to Position type variables
 type PositionSlice struct {
+	// IDEA: merge active/closed position slices into one & replace positions
 	len       int
 	positions []*Position
 	totalAmt  Amount
@@ -74,30 +75,28 @@ func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 // }
 
 // NewPortfolio creates a new instance of a Portfolio struct.
-func NewPortfolio(cashAmt Amount, benchmark *Index) *Portfolio {
+func NewPortfolio(cashAmt Amount) *Portfolio {
 	return &Portfolio{
-		Active:    make(map[string]*PositionSlice),
-		Closed:    make(map[string]*PositionSlice),
-		Cash:      cashAmt,
-		Benchmark: benchmark,
+		Active: make(map[string]*PositionSlice),
+		Closed: make(map[string]*PositionSlice),
+		Cash:   cashAmt,
 	}
 }
 
 // Portfolio struct refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	Active    map[string]*PositionSlice `json:"active"`
-	Closed    map[string]*PositionSlice `json:"closed"`
-	Orders    []*Order                  `json:"orders"` // NOTE: may not need this
-	Cash      Amount                    `json:"cash"`
-	Benchmark *Index                    `json:"benchmark"`
+	Active map[string]*PositionSlice `json:"active"`
+	Closed map[string]*PositionSlice `json:"closed"`
+	Orders []*Order                  `json:"orders"` // NOTE: may not need this
+	Cash   Amount                    `json:"cash"`
 	*sync.RWMutex
 	// IDEA: max/min equity as datedmetrics
 }
 
 // TODO Look into concurrent access of struct pointers
-func (port *Portfolio) updatePosition(tick Tick) {
+func (port *Portfolio) updatePositions(tick Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
-		pos.updateMetrics(tick)
+		go pos.updateMetrics(tick)
 	}
 }
 
@@ -107,7 +106,7 @@ type Index struct {
 	Instruments map[string]*Security
 }
 
-func (index *Index) updateMetrics(tick *Tick) (ok bool) {
+func (index *Index) updateSecurities(tick *Tick) (ok bool) {
 	if security, exists := index.Instruments[tick.Ticker]; !exists {
 		index.Instruments[tick.Ticker] = NewSecurity(*tick)
 	} else {

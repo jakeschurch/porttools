@@ -27,9 +27,8 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
-	portfolio *Portfolio
-	index     *Index
-	config    *Config
+	*backtestEngine
+	config *Config
 	// Channels
 	closing    chan chan error
 	inputChans []*inputChan
@@ -80,7 +79,29 @@ func (sim *Simulation) loadInput() error {
 	return nil
 }
 
-func (sim *Simulation) popRecieve() {
+func (sim *Simulation) popFly() {
+	done := make(chan struct{})
+
+	sim.inputChans[0].deconstruct()
+
+	sim.inputChans = sim.inputChans[0:]
+	inChan := sim.inputChans[0]
+	go func() {
+		for tick := range inChan.tickC {
+			go sim.simulateData(tick)
+		}
+		done <- struct{}{}
+	}()
+
+	<-done
+	if len(sim.inputChans) > 1 {
+		sim.popFly()
+	} else {
+		return
+	}
+}
+
+func (sim *Simulation) simulateData(tick *Tick) {
 	// TODO:
 }
 
@@ -171,8 +192,15 @@ type inputChan struct {
 	tickC   chan *Tick
 }
 
-func (ch inputChan) close() {
+func (ch *inputChan) close() {
 	close(ch.recordC)
 	close(ch.tickC)
+	return
+}
+
+func (ch *inputChan) deconstruct() {
+	ch.recordC = nil
+	ch.tickC = nil
+	ch = nil
 	return
 }
