@@ -40,6 +40,7 @@ type Config struct {
 	} `json:"file"`
 
 	Backtest struct {
+		StartCashAmt     float64  `json:"startCashAmt"`
 		IgnoreSecurities []string `json:"ignoreSecurities"`
 		Slippage         float64  `json:"slippage"`
 		Commission       float64  `json:"commission"`

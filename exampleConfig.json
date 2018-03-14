@@ -14,6 +14,7 @@
         }
     },
     "backtest": {
+        "startCashAmt": 100000.00,
         "ignoreSecurities": ["AAPL"],
         "Slippage": 0.00,
         "Commission": 0.00

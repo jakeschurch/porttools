@@ -142,7 +142,7 @@ type Position struct {
 	BuyPrice, SellPrice datedMetric
 }
 
-func (pos *Position) updateMetrics(tick Tick) {
+func (pos *Position) updateMetrics(tick *Tick) {
 	go func() {
 		pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
 		pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)

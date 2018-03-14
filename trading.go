@@ -82,11 +82,11 @@ func (port *Portfolio) Transact(order *Order, costMethod CostMethod) error {
 			BuyPrice: datedMetric{order.Price, order.Datetime},
 		}
 		port.Active[order.Ticker].Push(posBought)
-		port.Active[order.Ticker].totalAmt += posBought.Volume // Update position slice volume.
+		port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
 
 	case false: // sell
 		// Check to see if order can be fulfilled, if not, cancel order and return error.
-		if port.Active[order.Ticker].totalAmt < order.Volume {
+		if port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = canceled
 			port.Orders = append(port.Orders, order)
 			return errors.New("Not enough volume to satisfy order")

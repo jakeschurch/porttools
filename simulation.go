@@ -15,38 +15,47 @@ import (
 // NewSimulation is a constructor for the Simulation data type,
 // and a pre-processor function for the embedded types.
 func NewSimulation(cfgFile string) (*Simulation, error) {
-	sim := new(Simulation)
 	cfg, cfgErr := loadConfig(cfgFile)
 	if cfgErr != nil {
-		return sim, cfgErr
+		return nil, cfgErr
 	}
-	sim.config = cfg
-
+	startingCash := FloatAmount(cfg.Backtest.StartCashAmt)
+	sim := &Simulation{
+		btEngine:   newBacktestEngine(startingCash, cfg.Backtest.IgnoreSecurities),
+		closing:    make(chan chan error),
+		inputChans: make([]*inputChan, 0),
+	}
 	return sim, nil
+}
+
+// LoadAlgorithm ensures that an Algorithm interface is implemented in the Simulation pipeline to be used by other functions.
+func LoadAlgorithm(sim *Simulation, algo Algorithm) bool {
+	sim.btEngine.OMS.strategy.Algorithm = algo
+	return true
 }
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
-	*BacktestEngine
-	config *Config
+	btEngine *BacktestEngine
+	config   *Config // TODO: remove config
 	// Channels
 	closing    chan chan error
 	inputChans []*inputChan
 }
 
 func (sim *Simulation) run() {
-	done := make(chan bool)
+	done := make(chan struct{})
 	var err error
-	// TODO:
+	// TODO: err checking/initialize, etc.
 	go func() {
 		for {
 			select {
 			case errc := <-sim.closing:
 				errc <- err
 				for _, c := range sim.inputChans {
-					c.close()
+					c.deconstruct()
 				}
-				done <- true
+				done <- struct{}{}
 				break
 			}
 		}
@@ -54,10 +63,35 @@ func (sim *Simulation) run() {
 	<-done
 }
 
-func (sim *Simulation) close() error {
-	errc := make(chan error)
-	sim.closing <- errc
-	return <-errc
+// TODO: rename later to make more sense
+func (sim *Simulation) popFly() {
+	done := make(chan struct{})
+
+	sim.inputChans[0].deconstruct()
+
+	sim.inputChans = sim.inputChans[0:]
+	inChan := sim.inputChans[0]
+	go func() {
+		for tick := range inChan.tickC {
+			go sim.simulateData(tick)
+		}
+		done <- struct{}{}
+	}()
+
+	<-done
+	if len(sim.inputChans) > 1 {
+		sim.popFly()
+	} else {
+		return
+	}
+}
+
+func (sim *Simulation) simulateData(tick *Tick) {
+	if _, exists := sim.btEngine.OMS.strategy.ignoreTickers[tick.Ticker]; exists {
+		return
+	}
+	go sim.btEngine.OMS.Portfolio.updatePositions(tick)
+	go sim.btEngine.Benchmark.updateSecurities(tick)
 }
 
 func (sim *Simulation) loadInput() error {
@@ -65,8 +99,8 @@ func (sim *Simulation) loadInput() error {
 	if globErr != nil {
 		return globErr
 	}
-
-	sim.inputChans = make([]*inputChan, len(fileGlob)+1) // extra bucket for sentinel value
+	// extra bucket for sentinel value
+	sim.inputChans = make([]*inputChan, len(fileGlob)+1)
 	sim.inputChans[0] = new(inputChan)
 
 	go func() {
@@ -75,6 +109,8 @@ func (sim *Simulation) loadInput() error {
 			sim.loadData(sim.inputChans[i+1], file)
 		}
 	}()
+	sim.popFly()
+
 	return nil
 }
 
@@ -152,6 +188,12 @@ func (sim *Simulation) loadTicks(quit chan<- struct{}, inChan *inputChan, date t
 	return nil
 }
 
+func (sim *Simulation) close() error {
+	errc := make(chan error)
+	sim.closing <- errc
+	return <-errc
+}
+
 func newInputChan() *inputChan {
 	inputChan := new(inputChan)
 	inputChan.recordC = make(chan []string)
@@ -164,8 +206,16 @@ type inputChan struct {
 	tickC   chan *Tick
 }
 
-func (ch inputChan) close() {
+func (ch *inputChan) close() {
 	close(ch.recordC)
 	close(ch.tickC)
+	return
+}
+
+func (ch *inputChan) deconstruct() {
+	ch.close()
+	ch.recordC = nil
+	ch.tickC = nil
+	ch = nil
 	return
 }

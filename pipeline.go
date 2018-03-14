@@ -1,32 +1,66 @@
 package porttools
 
+func newBacktestEngine(cashAmt Amount, toIgnore []string) *BacktestEngine {
+	btEngine := &BacktestEngine{
+		OMS: newOMS(cashAmt, toIgnore),
+		// TODO: portLog
+	}
+	return btEngine
+}
+
+// BacktestEngine is the centralized struct that everything is occuring through within a simulation.
 type BacktestEngine struct {
-	Portfolio *Portfolio
 	Benchmark *Index
 	Log       *PerformanceLog
-	Strategy  *Strategy
+	OMS       *OMS
 }
 
-type PortManager interface {
-	OrderLogic() bool // REVIEW: rename ConstraintLogic?
+// IDEA: send closed orders to PerformanceLog Closed slice instead of back to Portfolio's ClosedPosition Slice
+// OPTIMIZE: instead of using sync.Mutexes, use channels/non-blocking functions
+
+func newOMS(cashAmt Amount, toIgnore []string) *OMS {
+	return &OMS{
+		Portfolio:  NewPortfolio(cashAmt),
+		OpenOrders: make([]*Order, 0),
+		strategy:   newStrategy(toIgnore),
+	}
 }
 
-// TODO: Finish method signature
-type Algorithm interface {
-	EntryLogic() bool
-	ExitLogic() bool
+// OMS acts as an `Order Management System` to test trading signals and fill orders.
+type OMS struct {
+	Portfolio  *Portfolio
+	OpenOrders []*Order
+	strategy   *Strategy
+}
+
+// newStrategy creates a new Strategy instance used in the backtesting process.
+func newStrategy(toIgnore []string) *Strategy {
+	toIgnoreMap := make(map[string]bool)
+	for _, ticker := range toIgnore {
+		toIgnoreMap[ticker] = true
+	}
+	strategy := &Strategy{ignoreTickers: toIgnoreMap}
+	return strategy
 }
 
 // Strategy ... TODO
 type Strategy struct {
-	algos []Algorithm
+	Algorithm
+	ignoreTickers map[string]bool
+}
+
+// Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
+type Algorithm interface {
+	EntryLogic() bool
+	ExitLogic() bool
+	OrderLogic() bool
 }
 
 // PerformanceLog conducts performance analysis.
 type PerformanceLog struct {
-	Closed    PositionSlice
-	orders    Queue
-	benchmark *Index
+	Closed PositionSlice
+	orders Queue
+	// benchmark *Index
 }
 
 // TODO: ExecuteStrategy method

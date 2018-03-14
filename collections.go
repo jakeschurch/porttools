@@ -7,15 +7,18 @@ import (
 
 func newPositionSlice() *PositionSlice {
 	return &PositionSlice{
-		len: 0, positions: make([]*Position, 0), totalAmt: 0}
+		len:         0,
+		positions:   make([]*Position, 0),
+		totalVolume: 0,
+	}
 }
 
 // PositionSlice is a slice that holds pointer values to Position type variables
 type PositionSlice struct {
-	// IDEA: merge active/closed position slices into one & replace positions
-	len       int
-	positions []*Position
-	totalAmt  Amount
+	positions   []*Position
+	len         int
+	totalVolume Amount
+	*sync.Mutex // COMBAK: may need this later...or not.
 }
 
 // Push adds position to position slice,
@@ -80,6 +83,7 @@ func NewPortfolio(cashAmt Amount) *Portfolio {
 		Active: make(map[string]*PositionSlice),
 		Closed: make(map[string]*PositionSlice),
 		Cash:   cashAmt,
+		Orders: make([]*Order, 0),
 	}
 }
 
@@ -87,14 +91,14 @@ func NewPortfolio(cashAmt Amount) *Portfolio {
 type Portfolio struct {
 	Active map[string]*PositionSlice `json:"active"`
 	Closed map[string]*PositionSlice `json:"closed"`
-	Orders []*Order                  `json:"orders"` // NOTE: may not need this
-	Cash   Amount                    `json:"cash"`
+	Orders []*Order                  `json:"orders"`
+	// NOTE: may not be the `best` idea to store Orders in Portfolio struct.
+	Cash Amount `json:"cash"`
 	*sync.RWMutex
-	// IDEA: max/min equity as datedmetrics
 }
 
 // TODO Look into concurrent access of struct pointers
-func (port *Portfolio) updatePositions(tick Tick) {
+func (port *Portfolio) updatePositions(tick *Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
 		go pos.updateMetrics(tick)
 	}
