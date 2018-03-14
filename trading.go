@@ -5,13 +5,6 @@ import (
 	"time"
 )
 
-// PortfolioLog conducts performance analysis.
-type PortfolioLog struct {
-	Closed    PositionSlice
-	orders    Queue
-	benchmark *Index
-}
-
 // func report() {
 //
 // }

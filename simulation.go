@@ -27,7 +27,11 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
+<<<<<<< Updated upstream
 	*backtestEngine
+=======
+	*BacktestEngine
+>>>>>>> Stashed changes
 	config *Config
 	// Channels
 	closing    chan chan error

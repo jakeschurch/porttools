@@ -15,12 +15,10 @@ func loadConfig(filename string) (config *Config, err error) {
 	if fileErr != nil {
 		return nil, fileErr
 	}
-
 	decoder := json.NewDecoder(file)
 	if decodeErr := decoder.Decode(&config); decodeErr != nil {
 		return nil, decodeErr
 	}
-
 	return config, nil
 }
 

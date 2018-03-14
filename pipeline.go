@@ -3,9 +3,40 @@ package porttools
 type BacktestEngine struct {
 	Portfolio *Portfolio
 	Benchmark *Index
-	Log       *PortfolioLog
+	Log       *PerformanceLog
 	Strategy  *Strategy
 }
+
+// TODO: Finish method signature
+type algorithm interface {
+	EntryLogic() bool
+	ExitLogic() bool
+}
+
+// Algorithm ... TODO
+type Algorithm struct{}
+
+// Strategy ... TODO
+type Strategy struct {
+	algos []Algorithm
+}
+
+// PerformanceLog conducts performance analysis.
+type PerformanceLog struct {
+	Closed    PositionSlice
+	orders    Queue
+	benchmark *Index
+}
+
+/* TODO:
+	- Restricted tickers
+ 	- MaxOrderSize
+	- MaxPositionSize
+	- LongOnly/ShortOnly
+	- AssetDateBounds
+*/
+
+// TODO: ExecuteStrategy method
 
 //
 // import (
