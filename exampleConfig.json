@@ -7,9 +7,9 @@
             "ticker": 0,
             "timestamp": 6,
             "volume": 1,
-            "bidPrice": 2,
+            "bid": 2,
             "bidSize": 3,
-            "askPrice": 4,
+            "ask": 4,
             "askSize": 5
         }
     },

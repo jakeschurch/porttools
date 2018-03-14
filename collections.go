@@ -90,7 +90,7 @@ type Portfolio struct {
 	Orders    []*Order                  `json:"orders"` // NOTE: may not need this
 	Cash      Amount                    `json:"cash"`
 	Benchmark *Index                    `json:"benchmark"`
-	sync.RWMutex
+	*sync.RWMutex
 	// IDEA: max/min equity as datedmetrics
 }
 

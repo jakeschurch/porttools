@@ -1,7 +1,6 @@
 // Package porttools allows for storage of information regarding particular securities.
 package porttools
 
-// FIXME: BUG when changed tick struct from holding Price to AskPrice & BidPrice
 import (
 	"bytes"
 	"strconv"
@@ -13,15 +12,15 @@ import (
 // 	updateMetrics()
 // }
 
-// Amount ... TODO
+// Amount is a representation of fractional volumes. To get around floating-point erroneous behavior, multiply volume by 100 and cap it as a uint.
 type Amount uint64
 
-// ParseFloat ... TODO
+// FloatAmount converts a float64 value to an amount type. Can be thought of as a constructor for an Amount type.
 func FloatAmount(float float64) Amount {
 	return Amount(float * 100)
 }
 
-// Currency ... TODO
+// Currency outputs amount as a USD amount.
 func (amt Amount) Currency() string {
 	str := strconv.Itoa(int(amt))
 
@@ -51,27 +50,36 @@ func (amt Amount) Currency() string {
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
 type Security struct {
-	Ticker               string      `json:"ticker"`
-	NumTicks             uint        `json:"numTicks"`
-	AvgVolume            Amount      `json:"avgVolume"`
-	AvgPrice             Amount      `json:"avgPrice"`
-	LastPrice            datedMetric `json:"lastPrice"`
-	MaxPrice             datedMetric `json:"maxPrice"`
-	MinPrice             datedMetric `json:"minPrice"`
-	MaxVolume, MinVolume datedMetric `json:"maxVolume"`
-	BuyPrice, SellPrice  datedMetric `json:"buyPrice"`
+	Ticker              string
+	NumTicks            uint
+	BuyPrice, SellPrice datedMetric
+
+	// Fields related to bid/ask prices
+	AvgBid, AvgAsk   Amount
+	LastBid, LastAsk datedMetric
+	MaxAsk, MinAsk   datedMetric
+	MaxBid, MinBid   datedMetric
+	// Fields related to bid/ask volume
+	AvgBidSize, AvgAskSize Amount
+	MaxAskSize, MinAskSize datedMetric
+	MaxBidSize, MinBidSize datedMetric
 }
 
 // NewSecurity instantiates a new security from Tick data.
 func NewSecurity(tick Tick) *Security {
-	firstPrice := datedMetric{Amount: tick.Price, Date: tick.Timestamp}
-	firstVolume := datedMetric{Amount: tick.Volume, Date: tick.Timestamp}
+	firstBid := datedMetric{Amount: tick.Bid, Date: tick.Timestamp}
+	firstAsk := datedMetric{Amount: tick.Ask, Date: tick.Timestamp}
+	firstBidSize := datedMetric{Amount: tick.BidSize, Date: tick.Timestamp}
+	firstAskSize := datedMetric{Amount: tick.AskSize, Date: tick.Timestamp}
+
 	return &Security{
 		Ticker: tick.Ticker, NumTicks: 1,
-		LastPrice: firstPrice, BuyPrice: firstPrice,
-		AvgPrice: tick.Price, AvgVolume: tick.Volume,
-		MaxPrice: firstPrice, MinPrice: firstPrice,
-		MaxVolume: firstVolume, MinVolume: firstVolume,
+		AvgBid: tick.Bid, AvgAsk: tick.Ask,
+		MaxBid: firstBid, MaxAsk: firstAsk,
+		MinBid: firstBid, MinAsk: firstAsk,
+		AvgBidSize: tick.BidSize, AvgAskSize: tick.AskSize,
+		MaxBidSize: firstBidSize, MaxAskSize: firstAskSize,
+		MinBidSize: firstBidSize, MinAskSize: firstAskSize,
 	}
 }
 
@@ -80,30 +88,40 @@ func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
 	return numerator / (Amount(nTicks) + 1)
 }
 
+func newMax(lastMax datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+	if newPrice >= lastMax.Amount {
+		return datedMetric{Amount: newPrice, Date: timestamp}
+	}
+	return lastMax
+}
+
+func newMin(lastMin datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+	if newPrice <= lastMin.Amount {
+		return datedMetric{Amount: newPrice, Date: timestamp}
+	}
+	return lastMin
+}
+
 func (s *Security) updateMetrics(tick Tick) {
-	func() {
-		s.AvgPrice = newAvg(s.AvgPrice, s.NumTicks, tick.Price)
-		s.AvgVolume = newAvg(s.AvgVolume, s.NumTicks, tick.Volume)
-		s.LastPrice = datedMetric{tick.Price, tick.Timestamp}
+	go func() {
+		s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
+		s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
+		s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
+		s.AvgAskSize = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
+
+		s.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
+		s.LastBid = datedMetric{tick.Bid, tick.Timestamp}
 		s.NumTicks++
 	}()
-	func() {
-		if tick.Price >= s.MaxPrice.Amount {
-			s.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Timestamp}
-			return
-		}
-		if tick.Price <= s.MinPrice.Amount {
-			s.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Timestamp}
-		}
+	go func() {
+		s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
+		s.MinBid = newMin(s.MinBid, tick.Bid, tick.Timestamp)
+		s.MaxBidSize = newMax(s.MaxBidSize, tick.BidSize, tick.Timestamp)
+		s.MinBidSize = newMin(s.MinBidSize, tick.BidSize, tick.Timestamp)
 	}()
-	func() {
-		if tick.Volume >= s.MaxVolume.Amount {
-			s.MaxVolume = datedMetric{Amount: tick.Volume, Date: tick.Timestamp}
-			return
-		}
-		if tick.Volume <= s.MinVolume.Amount {
-			s.MinVolume = datedMetric{Amount: tick.Volume, Date: tick.Timestamp}
-		}
+	go func() {
+		s.MaxAsk = newMax(s.MaxAsk, tick.Ask, tick.Timestamp)
+		s.MinAsk = newMin(s.MinAsk, tick.Ask, tick.Timestamp)
 	}()
 }
 
@@ -114,38 +132,38 @@ type datedMetric struct {
 
 // Position structs refer the holding of a financial asset.
 type Position struct {
-	Ticker                        string      `json:"ticker"`
-	Volume                        Amount      `json:"volume"`
-	NumTicks                      uint        `json:"numTicks"`
-	AvgPrice                      Amount      `json:"avgPrice"`
-	LastPrice, MaxPrice, MinPrice datedMetric `json:"lastPrice"`
-	BuyPrice, SellPrice           datedMetric `json:"buyPrice"`
+	Ticker              string
+	Volume              Amount
+	NumTicks            uint
+	AvgBid, AvgAsk      Amount
+	LastBid, LastAsk    datedMetric
+	MaxBid, MaxAsk      datedMetric
+	MinBid, MinAsk      datedMetric
+	BuyPrice, SellPrice datedMetric
 }
 
 func (pos *Position) updateMetrics(tick Tick) {
 	go func() {
-		pos.AvgPrice = newAvg(pos.AvgPrice, pos.NumTicks, tick.Price)
-		pos.LastPrice = datedMetric{tick.Price, tick.Timestamp}
+		pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
+		pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
+		pos.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
+		pos.LastBid = datedMetric{tick.Bid, tick.Timestamp}
 		pos.NumTicks++
 	}()
 	go func() {
-		if tick.Price >= pos.MaxPrice.Amount {
-			pos.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Timestamp}
-			return
-		}
-		if tick.Price <= pos.MinPrice.Amount {
-			pos.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Timestamp}
-		}
+		pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)
+		pos.MinBid = newMin(pos.MinBid, tick.Bid, tick.Timestamp)
+	}()
+	go func() {
+		pos.MaxAsk = newMax(pos.MaxAsk, tick.Ask, tick.Timestamp)
+		pos.MinAsk = newMin(pos.MinAsk, tick.Ask, tick.Timestamp)
 	}()
 }
 
 // Tick structs holds information about a financial asset at a specific point in time.
 type Tick struct {
-	Ticker    string    `json:"ticker"`
-	Volume    Amount    `json:"volume"`
-	BidPrice  Amount    `json:"bidPrice"`
-	BidSize   Amount    `json:"bidSize"`
-	AskPrice  Amount    `json:"askPrice"`
-	AskSize   Amount    `json:"askSize"`
-	Timestamp time.Time `json:"timestamp"`
+	Ticker           string
+	Bid, Ask         Amount
+	BidSize, AskSize Amount
+	Timestamp        time.Time
 }
