@@ -21,7 +21,7 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 	}
 	startingCash := FloatAmount(cfg.Backtest.StartCashAmt)
 	sim := &Simulation{
-		btEngine:   newBacktestEngine(startingCash, cfg.Backtest.IgnoreSecurities),
+		btEngine:   newBacktestEngine(startingCash, cfg.Simulation.Costmethod, cfg.Backtest.IgnoreSecurities),
 		closing:    make(chan chan error),
 		inputChans: make([]*inputChan, 0),
 	}
@@ -46,7 +46,7 @@ type Simulation struct {
 func (sim *Simulation) run() {
 	done := make(chan struct{})
 	var err error
-	// TODO: err checking/initialize, etc.
+
 	sim.loadInput()
 	go func() {
 		for {

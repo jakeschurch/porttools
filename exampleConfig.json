@@ -23,6 +23,7 @@
         "startDate": "10/20/2015",
         "endDate": "10/25/2015",
         "barRate": 2,
+        "costmethod": 0
     },
     "benchmark": {
         "use": true,

@@ -1,8 +1,8 @@
 package porttools
 
-func newBacktestEngine(cashAmt Amount, toIgnore []string) *BacktestEngine {
+func newBacktestEngine(cashAmt Amount, costMethod CostMethod, toIgnore []string) *BacktestEngine {
 	btEngine := &BacktestEngine{
-		OMS: newOMS(cashAmt, toIgnore),
+		OMS: newOMS(cashAmt, costMethod, toIgnore),
 		// TODO: portLog
 	}
 	return btEngine
@@ -17,11 +17,11 @@ type BacktestEngine struct {
 // IDEA: send closed orders to PerformanceLog Closed slice instead of back to Portfolio's ClosedPosition Slice
 // OPTIMIZE: instead of using sync.Mutexes, use channels/non-blocking functions
 
-func newOMS(cashAmt Amount, toIgnore []string) *OMS {
+func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string) *OMS {
 	return &OMS{
 		portfolio:  NewPortfolio(cashAmt),
 		openOrders: make([]*Order, 0),
-		strategy:   newStrategy(toIgnore),
+		strategy:   newStrategy(toIgnore, costMethod),
 		tickChan:   make(chan *Tick),
 		closing:    make(chan struct{}, 1),
 	}
@@ -33,6 +33,7 @@ type OMS struct {
 	benchmark  *Index
 	openOrders []*Order
 	strategy   *strategy
+	orderChan  chan *Order
 	tickChan   chan *Tick
 	closing    chan struct{}
 }
@@ -42,9 +43,10 @@ func (oms *OMS) handle() {
 	go func() {
 		for {
 			select {
+			case order := <-oms.orderChan:
+				oms.portfolio.Transact(order, oms.strategy.costMethod)
 			case tick := <-oms.tickChan:
 				go oms.processTick(tick)
-
 			case <-oms.closing:
 				return
 			default:
@@ -70,14 +72,15 @@ func (oms *OMS) processTick(tick *Tick) {
 		oms.benchmark.updateSecurity(tick)
 
 		if order, signal := oms.strategy.algo.EntryLogic(tick); signal && oms.strategy.algo.ValidOrder(oms.portfolio, tick, order) {
-			go oms.fillBuy(order)
+			go func() { oms.orderChan <- order }()
 		}
 		if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
 
 			for _, slicedOrder := range slice {
 				go func(openOrder *Order) {
 					if order, signal := oms.strategy.algo.ExitLogic(tick, openOrder); signal && oms.strategy.algo.ValidOrder(oms.portfolio, tick, openOrder) {
-						oms.fillSell(order)
+						go func() { oms.orderChan <- order }()
+
 					}
 				}(slicedOrder)
 			}
@@ -86,25 +89,20 @@ func (oms *OMS) processTick(tick *Tick) {
 	}
 }
 
-func (oms *OMS) fillBuy(order *Order) {
-	// TODO:
-}
-
-func (oms *OMS) fillSell(order *Order) {
-	// TODO:
-}
-
 func (oms *OMS) closeHandle() {
 	oms.closing <- struct{}{}
 }
 
 // newStrategy creates a new Strategy instance used in the backtesting process.
-func newStrategy(toIgnore []string) *strategy {
+func newStrategy(toIgnore []string, costMethod CostMethod) *strategy {
 	toIgnoreMap := make(map[string]bool)
 	for _, ticker := range toIgnore {
 		toIgnoreMap[ticker] = true
 	}
-	strat := &strategy{ignore: toIgnoreMap}
+	strat := &strategy{
+		ignore:     toIgnoreMap,
+		costMethod: costMethod,
+	}
 	return strat
 }
 
@@ -117,8 +115,9 @@ type Algorithm interface {
 
 // strategy ... TODO
 type strategy struct {
-	algo   Algorithm
-	ignore map[string]bool
+	algo       Algorithm
+	costMethod CostMethod
+	ignore     map[string]bool
 }
 
 // PerformanceLog conducts performance analysis.

@@ -47,9 +47,10 @@ type Config struct {
 	} `json:"backtest"`
 
 	Simulation struct {
-		StartDate time.Time     `json:"startDate"`
-		EndDate   time.Time     `json:"endDate"`
-		BarRate   time.Duration `json:"barRate"`
+		StartDate  time.Time     `json:"startDate"`
+		EndDate    time.Time     `json:"endDate"`
+		BarRate    time.Duration `json:"barRate"`
+		Costmethod CostMethod    `json:"costmethod"`
 		//  IngestRate measures how many bars to skip
 		// IngestRate BarDuration `json:"ingestRate"`
 	} `json:"simulation"`
