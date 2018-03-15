@@ -30,14 +30,14 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 
 // LoadAlgorithm ensures that an Algorithm interface is implemented in the Simulation pipeline to be used by other functions.
 func LoadAlgorithm(sim *Simulation, algo Algorithm) bool {
-	sim.btEngine.OMS.strategy.Algorithm = algo
+	sim.btEngine.OMS.strategy.algo = algo
 	return true
 }
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
 	btEngine *BacktestEngine
-	config   *Config // TODO: remove config
+	config   *Config
 	// Channels
 	closing    chan chan error
 	inputChans []*inputChan
@@ -47,6 +47,7 @@ func (sim *Simulation) run() {
 	done := make(chan struct{})
 	var err error
 	// TODO: err checking/initialize, etc.
+	sim.loadInput()
 	go func() {
 		for {
 			select {
@@ -56,6 +57,7 @@ func (sim *Simulation) run() {
 					c.deconstruct()
 				}
 				done <- struct{}{}
+			case <-done:
 				break
 			}
 		}
@@ -73,7 +75,7 @@ func (sim *Simulation) popFly() {
 	inChan := sim.inputChans[0]
 	go func() {
 		for tick := range inChan.tickC {
-			go sim.simulateData(tick)
+			go func(t *Tick) { sim.simulateData(t) }(tick)
 		}
 		done <- struct{}{}
 	}()
@@ -87,11 +89,10 @@ func (sim *Simulation) popFly() {
 }
 
 func (sim *Simulation) simulateData(tick *Tick) {
-	if _, exists := sim.btEngine.OMS.strategy.ignoreTickers[tick.Ticker]; exists {
+	if _, exists := sim.btEngine.OMS.strategy.ignore[tick.Ticker]; exists {
 		return
 	}
-	go sim.btEngine.OMS.Portfolio.updatePositions(tick)
-	go sim.btEngine.Benchmark.updateSecurities(tick)
+	sim.btEngine.OMS.tickChan <- tick
 }
 
 func (sim *Simulation) loadInput() error {

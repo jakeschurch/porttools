@@ -5,17 +5,6 @@ import (
 	"time"
 )
 
-// func report() {
-//
-// }
-
-//
-// - max-drawdown
-// - % profitable
-// - total num trades
-// - winning/losing trades
-// - trading period length
-
 // CostMethod regards the type of accounting management rule
 // is implemented for selling securities.
 type CostMethod int
@@ -75,6 +64,11 @@ func (port *Portfolio) Transact(order *Order, costMethod CostMethod) error {
 			port.Orders = append(port.Orders, order)
 			return errors.New("Not enough cash to fulfil order")
 		}
+		if _, exists := port.Active[order.Ticker]; !exists {
+			port.Lock()
+			port.Active[order.Ticker] = newPositionSlice()
+			port.Unlock()
+		}
 
 		// Create new Position and add it to according position slice.
 		posBought := &Position{
@@ -91,12 +85,7 @@ func (port *Portfolio) Transact(order *Order, costMethod CostMethod) error {
 			port.Orders = append(port.Orders, order)
 			return errors.New("Not enough volume to satisfy order")
 		}
-		switch costMethod {
-		case fifo:
-			port.sell(*order, costMethod)
-		case lifo:
-			port.sell(*order, costMethod)
-		}
+		port.sell(*order, costMethod)
 	}
 	order.Status = completed
 	// Add order to the Portfolio's Orders slice

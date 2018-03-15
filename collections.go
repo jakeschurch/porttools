@@ -97,9 +97,13 @@ type Portfolio struct {
 	*sync.RWMutex
 }
 
-// TODO Look into concurrent access of struct pointers
 func (port *Portfolio) updatePositions(tick *Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
+		if pos.LastBid.Date.Before(tick.Timestamp) {
+			break
+			// return ?
+		}
+
 		go pos.updateMetrics(tick)
 	}
 }
@@ -108,11 +112,14 @@ func (port *Portfolio) updatePositions(tick *Tick) {
 // Index could refer to one Security or many.
 type Index struct {
 	Instruments map[string]*Security
+	*sync.Mutex
 }
 
-func (index *Index) updateSecurities(tick *Tick) (ok bool) {
+func (index *Index) updateSecurity(tick *Tick) (ok bool) {
 	if security, exists := index.Instruments[tick.Ticker]; !exists {
+		index.Lock()
 		index.Instruments[tick.Ticker] = NewSecurity(*tick)
+		index.Unlock()
 	} else {
 		security.updateMetrics(*tick)
 	}
