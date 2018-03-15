@@ -1,145 +1,136 @@
 package porttools
 
-import (
-	"encoding/csv"
-	"io"
-	"log"
-	"os"
-	"strconv"
-	"time"
-)
-
-func notMain() {
-
-	// example architecture
-	// 	stream <- Tick
-	// 	map[Tick.Ticker] <- stream
-	// 	process <- map
-	// ticksIn := make(map[string](chan Tick))
-	//
-	// doneProcessing := false
-	// for doneProcessing == false {
-	// 	// Loop over file
-	// 	// store each record in a Tick reference and pass it to ticksIn
-	// 	exampleTick := Tick{Ticker: "AAPL", bid: 101.14, Volume: 20000.00, Datetime: time.Now()}
-
-	// go func() {
-	// 	if recordChannel, exists := ticksIn[exampleTick.Ticker]; !exists {
-	// 		ticksIn[exampleTick.Ticker] = make(chan Tick)
-	// 	}
-	// 	ticksIn[exampleTick.Ticker] <- exampleTick
-	// }()
-	// option to throw out securities that aren't needed
-	// only see different trades -> simulate market that has traders in doing different trades and what is the aggregate position look like
-}
-
-// DataFeed TODO
-func DataFeed(fileName string) error {
-	// recordCh := loadRecords(fileName)
-	// loadTicks(tickCh, recordCh)
-	// processTicks(tickCh)
-	//
-	// go func() {
-	// 	for {
-	// 		select {
-	// 		case msg := <-recordCh:
-	// 			loadTicks(msg)
-	// 		}
-	// 	}
-	// }()
-
-	// 	// implement goroutine for []string
-	// 	go func(recordChan <-chan *Tick) {
-	// 		for range recordChan {
-	// 			go processTick(<-recordChan)
-	// 		}
-	// 	}(tickChan)
-	// }
-
-	return nil
-}
-
-func loadRecords(fileName string) <-chan []string {
-	out := make(chan []string)
-
-	file, err := os.Open(fileName)
-	defer file.Close()
-
-	if err != nil {
-		log.Fatal("File cannot load")
+func newBacktestEngine(cashAmt Amount, costMethod CostMethod, toIgnore []string) *BacktestEngine {
+	btEngine := &BacktestEngine{
+		OMS: newOMS(cashAmt, costMethod, toIgnore),
+		// TODO: portLog
 	}
-	r := csv.NewReader(file)
+	return btEngine
+}
+
+// BacktestEngine is the centralized struct that everything is occuring through within a simulation.
+type BacktestEngine struct {
+	Log *PerformanceLog
+	OMS *OMS
+}
+
+// IDEA: send closed orders to PerformanceLog Closed slice instead of back to Portfolio's ClosedPosition Slice
+// OPTIMIZE: instead of using sync.Mutexes, use channels/non-blocking functions
+
+func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string) *OMS {
+	return &OMS{
+		portfolio:  NewPortfolio(cashAmt),
+		openOrders: make([]*Order, 0),
+		strategy:   newStrategy(toIgnore, costMethod),
+		tickChan:   make(chan *Tick),
+		closing:    make(chan struct{}, 1),
+	}
+}
+
+// OMS acts as an `Order Management System` to test trading signals and fill orders.
+type OMS struct {
+	portfolio  *Portfolio
+	benchmark  *Index
+	openOrders []*Order
+	strategy   *strategy
+	orderChan  chan *Order
+	tickChan   chan *Tick
+	closing    chan struct{}
+}
+
+func (oms *OMS) handle() {
 
 	go func() {
 		for {
-			if record, err := r.Read(); err != nil {
-				if err == io.EOF {
-					break
-				}
-			} else {
-				out <- record
+			select {
+			case order := <-oms.orderChan:
+				oms.portfolio.Transact(order, oms.strategy.costMethod)
+			case tick := <-oms.tickChan:
+				go oms.processTick(tick)
+			case <-oms.closing:
+				return
+			default:
 			}
 		}
-		close(out)
 	}()
-	return out
+	<-oms.closing
 }
 
-func loadTicks(in <-chan []string) <-chan *Tick {
-	out := make(chan *Tick)
-	var ticksLooped int
+func (oms *OMS) existsInOrders(ticker string) []*Order {
+	orders := make([]*Order, 0)
 
-	go func() {
-		for record := range in {
-			tick, ok := createTick(record)
-			if ok == true {
-				out <- tick
-			} else {
-				log.Printf("Tick #%d not created due to bad format", ticksLooped)
-			}
+	for _, order := range oms.openOrders {
+		if order.Ticker == ticker {
+			orders = append(orders, order)
 		}
-		close(out)
-	}()
-	return out
+	}
+	return orders
 }
 
-func createTick(record []string) (tick *Tick, ok bool) {
-	ok = true
+func (oms *OMS) processTick(tick *Tick) {
+	if _, exists := oms.strategy.ignore[tick.Ticker]; !exists {
+		oms.benchmark.updateSecurity(tick)
 
-	if bid, bidErr := strconv.ParseUint("test", 10, 64); bidErr == nil {
-		tick.BidSize = Amount(bid)
-	} else {
-		return nil, !ok
+		if order, signal := oms.strategy.algo.EntryLogic(tick); signal && oms.strategy.algo.ValidOrder(oms.portfolio, tick, order) {
+			go func() { oms.orderChan <- order }()
+		}
+		if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
+
+			for _, slicedOrder := range slice {
+				go func(openOrder *Order) {
+					if order, signal := oms.strategy.algo.ExitLogic(tick, openOrder); signal && oms.strategy.algo.ValidOrder(oms.portfolio, tick, openOrder) {
+						go func() { oms.orderChan <- order }()
+
+					}
+				}(slicedOrder)
+			}
+			oms.portfolio.updatePositions(tick)
+		}
 	}
-	if volume, VolumeErr := strconv.ParseUint("test", 10, 64); VolumeErr == nil {
-		tick.Volume = Amount(volume)
-	} else {
-		return nil, !ok
-	}
-	if bid, bidErr := strconv.ParseUint("test", 10, 64); bidErr == nil {
-		tick.BidSize = Amount(bid)
-	} else {
-		return nil, !ok
-	}
-	if ask, askErr := strconv.ParseUint("test", 10, 64); askErr == nil {
-		tick.AskSize = Amount(ask)
-	} else {
-		return nil, !ok
-	}
-	if datetime, dateErr := time.Parse("Jan 2, 2006 100405.000000000", record[4]); dateErr != nil {
-		tick.Datetime = datetime
-	} else {
-		return nil, !ok
-	}
-	return tick, ok
 }
 
-// TODO processTicks ...
-func processTicks(in <-chan *Tick) {
-	// go func() {
-	// 	for tick := range in {
-	//
-	// 	}
-	// }()
-
+func (oms *OMS) closeHandle() {
+	oms.closing <- struct{}{}
 }
+
+// newStrategy creates a new Strategy instance used in the backtesting process.
+func newStrategy(toIgnore []string, costMethod CostMethod) *strategy {
+	toIgnoreMap := make(map[string]bool)
+	for _, ticker := range toIgnore {
+		toIgnoreMap[ticker] = true
+	}
+	strat := &strategy{
+		ignore:     toIgnoreMap,
+		costMethod: costMethod,
+	}
+	return strat
+}
+
+// Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
+type Algorithm interface {
+	EntryLogic(*Tick) (*Order, bool)
+	ExitLogic(*Tick, *Order) (*Order, bool)
+	ValidOrder(*Portfolio, *Tick, *Order) bool
+}
+
+// strategy ... TODO
+type strategy struct {
+	algo       Algorithm
+	costMethod CostMethod
+	ignore     map[string]bool
+}
+
+// PerformanceLog conducts performance analysis.
+type PerformanceLog struct {
+	Closed PositionSlice
+	orders Queue
+	// benchmark *Index
+}
+
+// - max-drawdown
+// - % profitable
+// - total num trades
+// - winning/losing trades
+// - trading period length
+
+// only see different trades -> simulate market that has traders doing different trades and what their aggregate position look like

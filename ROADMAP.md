@@ -23,7 +23,7 @@ _Goals:_
     - [x] update securities based on incoming tick
     - [ ] update market portfolio security based on incoming tick
 - [ ] Research System
-    - [ ] ability to screen for securities based on technical metrics
+    - [x] ability to screen for securities based on technical metrics
 - [ ] Risk Management Module
     - [ ] configuration to set strategy/constraint parameters for portfolio optimization
 - [ ] Money Management Module

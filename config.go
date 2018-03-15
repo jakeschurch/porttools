@@ -1,65 +1,83 @@
 package porttools
 
 import (
-	_ "encoding/json"
-	_ "flag"
-	"path/filepath"
+	"encoding/json" // will be used later
+	"os"
 	"time"
 )
 
-// TODO: LoadConfig ...
-func LoadConfig(filename string) interface{} {
-	return nil
+// NOTE: In a contemporary electronic market (circa 2009), low latency trade processing time was qualified as under 10 milliseconds, and ultra-low latency as under 1 millisecond
+
+// LoadConfig uses a Json File to populate details regarding configuration.
+func loadConfig(filename string) (config *Config, err error) {
+	file, fileErr := os.Open(filename)
+	defer file.Close()
+	if fileErr != nil {
+		return nil, fileErr
+	}
+	decoder := json.NewDecoder(file)
+	if decodeErr := decoder.Decode(&config); decodeErr != nil {
+		return nil, decodeErr
+	}
+	return config, nil
 }
 
-type benchmarkConfig struct {
-	Load         bool     `json:"load"`
-	Update       bool     `json:"update"`
-	Constituents []string `json:"constituents"`
+// Config is used as a struct store store configuration data in.
+type Config struct {
+	File struct {
+		Glob        string `json:"fileGlob"`
+		Delim       rune   `json:"delim"`
+		ExampleDate string `json:"exampleDate"`
+		Columns     struct {
+			Ticker    int `json:"ticker"`
+			Timestamp int `json:"timestamp"`
+			Volume    int `json:"volume"`
+			Bid       int `json:"bidPrice"`
+			BidSize   int `json:"bidSize"`
+			Ask       int `json:"askPrice"`
+			AskSize   int `json:"askSize"`
+		} `json:"columns"`
+	} `json:"file"`
+
+	Backtest struct {
+		StartCashAmt     float64  `json:"startCashAmt"`
+		IgnoreSecurities []string `json:"ignoreSecurities"`
+		Slippage         float64  `json:"slippage"`
+		Commission       float64  `json:"commission"`
+	} `json:"backtest"`
+
+	Simulation struct {
+		StartDate  time.Time     `json:"startDate"`
+		EndDate    time.Time     `json:"endDate"`
+		BarRate    time.Duration `json:"barRate"`
+		Costmethod CostMethod    `json:"costmethod"`
+		//  IngestRate measures how many bars to skip
+		// IngestRate BarDuration `json:"ingestRate"`
+	} `json:"simulation"`
+
+	Benchmark struct {
+		Use    bool `json:"use"`
+		Update bool `json:"update"`
+	} `json:"benchmark"`
 }
 
-type backtestConfig struct {
-	slippagePerTrade Amount
-	commission       Amount
+func (cfg *Config) timeUnit() (timeunit string) {
+	switch cfg.Simulation.BarRate {
+	case time.Nanosecond:
+		timeunit = "ns"
+	case time.Microsecond:
+		timeunit = "us"
+	case time.Millisecond:
+		timeunit = "ms"
+	case time.Second:
+		timeunit = "s"
+	case time.Minute:
+		timeunit = "m"
+	case time.Hour:
+		timeunit = "hr"
+	}
+	return
 }
 
-type simConfig struct {
-	StartDate time.Time `json:"startDate"`
-	EndDate   time.Time `json:"endDate"`
-	BarRate   Bar       `json:"barRate"`
-	//  IngestRate measures how many bars to skip
-	IngestRate Bar `json:"ingestRate"`
-}
-
-// Bar type is used to register tick intake.
-type Bar uint
-
-const (
-	microsecond Bar = iota
-	second
-	minute
-	hour
-	day
-)
-
-// QUESTION: is this function needed?
-func (cfg simConfig) dataFiles(pattern string) ([]string, error) {
-	return filepath.Glob(pattern)
-	// QUESTION: is this if statement necessary if Glob is creating
-	// 		error for us?
-	// if files, err := filepath.Glob(pattern); err != nil {
-	// 	return files, err
-	// } else {
-	// 	return files, nil
-	// }
-}
-
-type dataConfig struct {
-	FileGlob   string
-	tickerCol  uint
-	volumeCol  uint
-	bidAmtCol  uint
-	bidSizeCol uint
-	askAmtCol  uint
-	askSizeCol uint
-}
+// BarDuration is used to register tick intake.
+type BarDuration time.Duration

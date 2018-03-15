@@ -5,25 +5,6 @@ import (
 	"time"
 )
 
-// PortfolioLog conducts performance analysis.
-type PortfolioLog struct {
-	Closed    PositionSlice
-	orders    Queue
-	benchmark *Index
-}
-
-// func report() {
-//
-// }
-
-/* TODO:
-- max-drawdown
-- % profitable
-- total num trades
-- winning/losing trades
-- trading period length
-*/
-
 // CostMethod regards the type of accounting management rule
 // is implemented for selling securities.
 type CostMethod int
@@ -82,33 +63,29 @@ func (port *Portfolio) Transact(order *Order, costMethod CostMethod) error {
 			order.Status = canceled
 			port.Orders = append(port.Orders, order)
 			return errors.New("Not enough cash to fulfil order")
-}
-		// Update Cash Amount.
-		port.Lock()
-	port.Cash -= order.Volume * order.Price
-		port.Unlock()
+		}
+		if _, exists := port.Active[order.Ticker]; !exists {
+			port.Lock()
+			port.Active[order.Ticker] = newPositionSlice()
+			port.Unlock()
+		}
 
 		// Create new Position and add it to according position slice.
-	posBought := &Position{
-		Ticker: order.Ticker, Volume: order.Volume,
-		BuyPrice: datedMetric{order.Price, order.Datetime},
-	}
-	port.Active[order.Ticker].Push(posBought)
-		port.Active[order.Ticker].totalAmt += posBought.Volume // Update position slice volume.
+		posBought := &Position{
+			Ticker: order.Ticker, Volume: order.Volume,
+			BuyPrice: datedMetric{order.Price, order.Datetime},
+		}
+		port.Active[order.Ticker].Push(posBought)
+		port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
 
 	case false: // sell
 		// Check to see if order can be fulfilled, if not, cancel order and return error.
-		if port.Active[order.Ticker].totalAmt < order.Volume {
+		if port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = canceled
 			port.Orders = append(port.Orders, order)
 			return errors.New("Not enough volume to satisfy order")
 		}
-		switch costMethod {
-		case fifo:
-			port.sell(*order, costMethod)
-		case lifo:
-			port.sell(*order, costMethod)
-		}
+		port.sell(*order, costMethod)
 	}
 	order.Status = completed
 	// Add order to the Portfolio's Orders slice
@@ -145,11 +122,13 @@ func (port *Portfolio) sell(order Order, costMethod CostMethod) (err error) {
 		closedPos.Volume = sellAmt
 		closedPos.SellPrice = datedMetric{order.Price, order.Datetime}
 
+		port.Lock()
 		port.Closed[order.Ticker].Push(&closedPos)
 
 		if posToSell.Volume == 0 {
 			port.Closed[order.Ticker].Pop(costMethod)
+		}
+		port.Unlock()
 	}
-}
 	return nil
 }
