@@ -45,7 +45,6 @@ func NewSecurity(tick Tick) *Security {
 }
 
 func (s *Security) updateMetrics(tick Tick) {
-	go func() {
 		s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
 		s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
 		s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
@@ -53,18 +52,14 @@ func (s *Security) updateMetrics(tick Tick) {
 
 		s.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
 		s.LastBid = datedMetric{tick.Bid, tick.Timestamp}
-		s.NumTicks++
-	}()
-	go func() {
-		s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
+    
+    s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
 		s.MinBid = newMin(s.MinBid, tick.Bid, tick.Timestamp)
 		s.MaxBidSize = newMax(s.MaxBidSize, tick.BidSize, tick.Timestamp)
 		s.MinBidSize = newMin(s.MinBidSize, tick.BidSize, tick.Timestamp)
-	}()
-	go func() {
+
 		s.MaxAsk = newMax(s.MaxAsk, tick.Ask, tick.Timestamp)
 		s.MinAsk = newMin(s.MinAsk, tick.Ask, tick.Timestamp)
-	}()
 }
 
 // Position structs refer the holding of a financial asset.

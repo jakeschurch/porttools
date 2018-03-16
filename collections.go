@@ -89,6 +89,7 @@ func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error
 		return nil, errors.New("Buffer underflow")
 	}
 	slice.Lock()
+
 	switch costMethod {
 	case fifo:
 		pos = slice.positions[0]
