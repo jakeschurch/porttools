@@ -7,17 +7,110 @@ import (
 	"time"
 )
 
-// ...modelable? investmentable?
-// TODO: type marketable interface {
-// 	updateMetrics()
-// }
+// Security structs hold information regarding a financial asset for the entire
+// life of the financial asset in a trading environment. Because a Security struct
+// holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
+type Security struct {
+	Ticker              string
+	NumTicks            uint
+	BuyPrice, SellPrice datedMetric
 
-// Amount ... TODO
+	// Fields related to bid/ask prices
+	AvgBid, AvgAsk   Amount
+	LastBid, LastAsk datedMetric
+	MaxAsk, MinAsk   datedMetric
+	MaxBid, MinBid   datedMetric
+	// Fields related to bid/ask volume
+	AvgBidSize, AvgAskSize Amount
+	MaxAskSize, MinAskSize datedMetric
+	MaxBidSize, MinBidSize datedMetric
+}
+
+// NewSecurity instantiates a new security from Tick data.
+func NewSecurity(tick Tick) *Security {
+	firstBid := datedMetric{Amount: tick.Bid, Date: tick.Timestamp}
+	firstAsk := datedMetric{Amount: tick.Ask, Date: tick.Timestamp}
+	firstBidSize := datedMetric{Amount: tick.BidSize, Date: tick.Timestamp}
+	firstAskSize := datedMetric{Amount: tick.AskSize, Date: tick.Timestamp}
+
+	return &Security{
+		Ticker: tick.Ticker, NumTicks: 1,
+		AvgBid: tick.Bid, AvgAsk: tick.Ask,
+		MaxBid: firstBid, MaxAsk: firstAsk,
+		MinBid: firstBid, MinAsk: firstAsk,
+		AvgBidSize: tick.BidSize, AvgAskSize: tick.AskSize,
+		MaxBidSize: firstBidSize, MaxAskSize: firstAskSize,
+		MinBidSize: firstBidSize, MinAskSize: firstAskSize,
+	}
+}
+
+func (s *Security) updateMetrics(tick Tick) {
+		s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
+		s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
+		s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
+		s.AvgAskSize = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
+
+		s.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
+		s.LastBid = datedMetric{tick.Bid, tick.Timestamp}
+    
+    s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
+		s.MinBid = newMin(s.MinBid, tick.Bid, tick.Timestamp)
+		s.MaxBidSize = newMax(s.MaxBidSize, tick.BidSize, tick.Timestamp)
+		s.MinBidSize = newMin(s.MinBidSize, tick.BidSize, tick.Timestamp)
+
+		s.MaxAsk = newMax(s.MaxAsk, tick.Ask, tick.Timestamp)
+		s.MinAsk = newMin(s.MinAsk, tick.Ask, tick.Timestamp)
+}
+
+// Position structs refer the holding of a financial asset.
+type Position struct {
+	Ticker              string
+	Volume              Amount
+	NumTicks            uint
+	AvgBid, AvgAsk      Amount
+	LastBid, LastAsk    datedMetric
+	MaxBid, MaxAsk      datedMetric
+	MinBid, MinAsk      datedMetric
+	BuyPrice, SellPrice datedMetric
+}
+
+func (pos *Position) updateMetrics(tick *Tick) {
+	func() {
+		pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
+		pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
+		pos.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
+		pos.LastBid = datedMetric{tick.Bid, tick.Timestamp}
+		pos.NumTicks++
+	}()
+	func() {
+		pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)
+		pos.MinBid = newMin(pos.MinBid, tick.Bid, tick.Timestamp)
+	}()
+	func() {
+		pos.MaxAsk = newMax(pos.MaxAsk, tick.Ask, tick.Timestamp)
+		pos.MinAsk = newMin(pos.MinAsk, tick.Ask, tick.Timestamp)
+	}()
+}
+
+// Tick structs holds information about a financial asset at a specific point in time.
+type Tick struct {
+	Ticker           string
+	Bid, Ask         Amount
+	BidSize, AskSize Amount
+	Timestamp        time.Time
+}
+
+// Amount is a representation of fractional volumes. To get around floating-point erroneous behavior, multiply volume by 100 and cap it as a uint.
 type Amount uint64
 
-// Currency ... TODO
-func (c Amount) Currency() string {
-	str := strconv.Itoa(int(c))
+// FloatAmount converts a float64 value to an amount type. Can be thought of as a constructor for an Amount type.
+func FloatAmount(float float64) Amount {
+	return Amount(float * 100)
+}
+
+// Currency outputs amount as a USD amount.
+func (amt Amount) Currency() string {
+	str := strconv.Itoa(int(amt))
 
 	b := bytes.NewBufferString(str)
 	numCommas := (b.Len() - 2) / 3
@@ -41,29 +134,9 @@ func (c Amount) Currency() string {
 	return string(out)
 }
 
-// Security structs hold information regarding a financial asset for the entire
-// life of the financial asset in a trading environment. Because a Security struct
-// holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
-type Security struct {
-	Ticker                        string
-	NumTicks                      uint
-	AvgVolume, AvgPrice           Amount
-	LastPrice, MaxPrice, MinPrice datedMetric
-	MaxVolume, MinVolume          datedMetric
-	BuyPrice, SellPrice           datedMetric
-}
-
-// NewSecurity instantiates a new security from Tick data.
-func NewSecurity(tick Tick) *Security {
-	firstPrice := datedMetric{Amount: tick.Price, Date: tick.Datetime}
-	firstVolume := datedMetric{Amount: tick.Volume, Date: tick.Datetime}
-	return &Security{
-		Ticker: tick.Ticker, NumTicks: 1,
-		LastPrice: firstPrice, BuyPrice: firstPrice,
-		AvgPrice: tick.Price, AvgVolume: tick.Volume,
-		MaxPrice: firstPrice, MinPrice: firstPrice,
-		MaxVolume: firstVolume, MinVolume: firstVolume,
-	}
+type datedMetric struct {
+	Amount Amount    `json:"amount"`
+	Date   time.Time `json:"date"`
 }
 
 func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
@@ -71,83 +144,16 @@ func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
 	return numerator / (Amount(nTicks) + 1)
 }
 
-func (s *Security) updateMetrics(tick Tick) {
-	go func() {
-		s.AvgPrice = newAvg(s.AvgPrice, s.NumTicks, tick.Price)
-		s.AvgVolume = newAvg(s.AvgVolume, s.NumTicks, tick.Volume)
-		s.LastPrice = datedMetric{tick.Price, tick.Datetime}
-		s.NumTicks++
-	}()
-
-	go func() {
-		if tick.Price >= s.MaxPrice.Amount {
-			s.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
-			return
-		}
-		if tick.Price <= s.MinPrice.Amount {
-			s.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
-		}
-	}()
-
-	go func() {
-		if tick.Volume >= s.MaxVolume.Amount {
-			s.MaxVolume = datedMetric{Amount: tick.Volume, Date: tick.Datetime}
-			return
-		}
-		if tick.Volume <= s.MinVolume.Amount {
-			s.MinVolume = datedMetric{Amount: tick.Volume, Date: tick.Datetime}
-		}
-	}()
-
+func newMax(lastMax datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+	if newPrice >= lastMax.Amount {
+		return datedMetric{Amount: newPrice, Date: timestamp}
+	}
+	return lastMax
 }
 
-type datedMetric struct {
-	Amount Amount
-	Date   time.Time
-}
-
-// Position structs refer the holding of a financial asset.
-type Position struct {
-	Ticker                        string
-	Volume                        Amount
-	NumTicks                      uint
-	AvgPrice                      Amount
-	LastPrice, MaxPrice, MinPrice datedMetric
-	BuyPrice, SellPrice           datedMetric
-}
-
-func (pos *Position) updateMetrics(tick Tick) (ok bool) {
-	go func() {
-		pos.AvgPrice = newAvg(pos.AvgPrice, pos.NumTicks, tick.Price)
-		pos.LastPrice = datedMetric{tick.Price, tick.Datetime}
-		pos.NumTicks++
-	}()
-
-	go func() {
-		if tick.Price >= pos.MaxPrice.Amount {
-			pos.MaxPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
-			return
-		}
-		if tick.Price <= pos.MinPrice.Amount {
-			pos.MinPrice = datedMetric{Amount: tick.Price, Date: tick.Datetime}
-		}
-	}()
-
-}
-
-// Tick structs holds information about a financial asset at a specific point in time.
-type Tick struct {
-	Ticker   string
-	Price    Amount
-	Volume   Amount
-	BidSize  Amount
-	AskSize  Amount
-	Datetime time.Time
-}
-
-// Kwarg struct allows for add'l args/attrs to a class or func.
-// NOTE: is this really needed?
-type Kwarg struct {
-	name  string
-	value interface{}
+func newMin(lastMin datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+	if newPrice <= lastMin.Amount {
+		return datedMetric{Amount: newPrice, Date: timestamp}
+	}
+	return lastMin
 }
