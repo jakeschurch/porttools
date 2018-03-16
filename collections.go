@@ -6,6 +6,48 @@ import (
 	"sync"
 )
 
+// NewPortfolio creates a new instance of a Portfolio struct.
+func NewPortfolio(cashAmt Amount) *Portfolio {
+	return &Portfolio{
+		Active: make(map[string]*PositionSlice),
+		Cash:   cashAmt,
+	}
+}
+
+// Portfolio struct refer to the aggregation of positions traded by a broker.
+type Portfolio struct {
+	Active map[string]*PositionSlice `json:"active"`
+	Cash   Amount                    `json:"cash"`
+	*sync.RWMutex
+}
+
+func (port *Portfolio) updatePositions(tick *Tick) {
+	for _, pos := range port.Active[tick.Ticker].positions {
+		if pos.LastBid.Date.Before(tick.Timestamp) {
+			break // REVIEW return instead of break?
+		}
+		go pos.updateMetrics(tick)
+	}
+}
+
+// Index structs allow for the use of a benchmark to compare financial performance,
+// Index could refer to one Security or many.
+type Index struct {
+	Instruments map[string]*Security
+	*sync.Mutex
+}
+
+func (index *Index) updateSecurity(tick *Tick) (ok bool) {
+	if security, exists := index.Instruments[tick.Ticker]; !exists {
+		index.Lock()
+		index.Instruments[tick.Ticker] = NewSecurity(*tick)
+		index.Unlock()
+	} else {
+		security.updateMetrics(*tick)
+	}
+	return true
+}
+
 func newPositionSlice() *PositionSlice {
 	return &PositionSlice{
 		len:         0,
@@ -72,52 +114,4 @@ func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 		pos = slice.positions[slice.len]
 	}
 	return
-}
-
-// NewPortfolio creates a new instance of a Portfolio struct.
-func NewPortfolio(cashAmt Amount) *Portfolio {
-	return &Portfolio{
-		Active: make(map[string]*PositionSlice),
-		Closed: make(map[string]*PositionSlice),
-		Cash:   cashAmt,
-		Orders: make([]*Order, 0),
-	}
-}
-
-// Portfolio struct refer to the aggregation of positions traded by a broker.
-type Portfolio struct {
-	Active map[string]*PositionSlice `json:"active"`
-	Closed map[string]*PositionSlice `json:"closed"`
-	Orders []*Order                  `json:"orders"`
-	// NOTE: may not be the `best` idea to store Orders in Portfolio struct.
-	Cash Amount `json:"cash"`
-	*sync.RWMutex
-}
-
-func (port *Portfolio) updatePositions(tick *Tick) {
-	for _, pos := range port.Active[tick.Ticker].positions {
-		if pos.LastBid.Date.Before(tick.Timestamp) {
-			break
-			// REVIEW return instead of break?
-		}
-		go pos.updateMetrics(tick)
-	}
-}
-
-// Index structs allow for the use of a benchmark to compare financial performance,
-// Index could refer to one Security or many.
-type Index struct {
-	Instruments map[string]*Security
-	*sync.Mutex
-}
-
-func (index *Index) updateSecurity(tick *Tick) (ok bool) {
-	if security, exists := index.Instruments[tick.Ticker]; !exists {
-		index.Lock()
-		index.Instruments[tick.Ticker] = NewSecurity(*tick)
-		index.Unlock()
-	} else {
-		security.updateMetrics(*tick)
-	}
-	return true
 }

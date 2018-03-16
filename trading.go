@@ -25,7 +25,7 @@ const (
 func (oms *OMS) Transact(order *Order) error {
 
 	switch order.Buy {
-	case true:
+	case true: // in lieu of a buy function
 		ok := func() bool { // check to see if order can be fulfilled.
 			oms.port.RLock()
 			ok := (order.Volume * order.Price) <= oms.port.Cash
@@ -49,7 +49,8 @@ func (oms *OMS) Transact(order *Order) error {
 		oms.port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
 
 	case false: // sell
-		// Check to see if order can be fulfilled, if not, cancel order and return error.
+		// Check to see if order can be fulfilled
+		// if not, cancel order and return error
 		if oms.port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = canceled
 			go func() { oms.log.orderChan <- order }()
@@ -80,13 +81,20 @@ func (oms *OMS) sell(order Order) (err error) {
 			return
 		}
 
-		var sellAmt Amount
+		var sellVolume Amount
 		if posToSell.Volume >= order.Volume {
-			sellAmt = order.Volume
+			sellVolume = order.Volume
 		} else {
-			sellAmt = posToSell.Volume
+			sellVolume = posToSell.Volume
 		}
-		posToSell.Volume -= sellAmt
+		posToSell.Volume -= sellVolume
+
+		closedPos := *posToSell
+		closedPos.Volume = sellVolume
+		closedPos.SellPrice = datedMetric{order.Price, order.Datetime}
+		go func() {
+			oms.log.posChan <- &closedPos
+		}()
 
 		if posToSell.Volume == 0 {
 			_, popErr := oms.port.Active[order.Ticker].Pop(oms.strategy.costMethod)
