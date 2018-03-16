@@ -176,7 +176,7 @@ func (sim *Simulation) loadData(inChan *inputChan, file string) (err error) {
 	return
 }
 
-// TODO: add logging statements if things go `hairy`
+// TODO: add logging statements for if things get `hairy`
 func (sim *Simulation) loadTicks(quit chan<- struct{}, inChan *inputChan, date time.Time) error {
 	for record := range inChan.recordC {
 		var tick *Tick
