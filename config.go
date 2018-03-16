@@ -80,4 +80,5 @@ func (cfg *Config) timeUnit() (timeunit string) {
 }
 
 // BarDuration is used to register tick intake.
+// REVIEW: needed?
 type BarDuration time.Duration
