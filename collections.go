@@ -2,6 +2,7 @@ package porttools
 
 import (
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -24,12 +25,16 @@ type PositionSlice struct {
 // Push adds position to position slice,
 // updates total Volume of all positions in slice.
 func (slice *PositionSlice) Push(pos *Position) {
+	slice.Lock()
 	slice.len++
+
 	if slice.len-1 == 0 {
 		slice.positions[0] = pos
+		slice.Unlock()
 		return
 	}
 	slice.positions[slice.len] = pos
+	slice.Unlock()
 	return
 }
 
@@ -38,8 +43,10 @@ func (slice *PositionSlice) Push(pos *Position) {
 // Otherwise if lifo is passed as costmethod, the position at the last index will be popped.
 func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error) {
 	if slice.len == 0 {
+		log.Printf("%s position slice has underflowed.\n", pos.Ticker)
 		return nil, errors.New("Buffer underflow")
 	}
+	slice.Lock()
 	switch costMethod {
 	case fifo:
 		pos = slice.positions[0]
@@ -49,6 +56,7 @@ func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error
 		slice.positions = slice.positions[:slice.len]
 	}
 	slice.len--
+	slice.Unlock()
 	return
 }
 
@@ -65,17 +73,6 @@ func (slice *PositionSlice) Peek(costMethod CostMethod) (pos *Position) {
 	}
 	return
 }
-
-// // GetActive ... XXX
-// func (port *Portfolio) GetActive(key string, errCh <-chan error) (*PositionSlice, bool) {
-// 	port.mutex.Lock()
-// 	posSlice, ok := port.Active[key]
-// 	port.mutex.Unlock()
-// 	if !ok {
-// 		return nil, !ok
-// 	}
-// 	return posSlice, ok
-// }
 
 // NewPortfolio creates a new instance of a Portfolio struct.
 func NewPortfolio(cashAmt Amount) *Portfolio {
@@ -101,9 +98,8 @@ func (port *Portfolio) updatePositions(tick *Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
 		if pos.LastBid.Date.Before(tick.Timestamp) {
 			break
-			// return ?
+			// REVIEW return instead of break?
 		}
-
 		go pos.updateMetrics(tick)
 	}
 }

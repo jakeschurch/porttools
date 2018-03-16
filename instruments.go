@@ -7,45 +7,6 @@ import (
 	"time"
 )
 
-// ...modelable? investmentable?
-// TODO: type marketable interface {
-// 	updateMetrics()
-// }
-
-// Amount is a representation of fractional volumes. To get around floating-point erroneous behavior, multiply volume by 100 and cap it as a uint.
-type Amount uint64
-
-// FloatAmount converts a float64 value to an amount type. Can be thought of as a constructor for an Amount type.
-func FloatAmount(float float64) Amount {
-	return Amount(float * 100)
-}
-
-// Currency outputs amount as a USD amount.
-func (amt Amount) Currency() string {
-	str := strconv.Itoa(int(amt))
-
-	b := bytes.NewBufferString(str)
-	numCommas := (b.Len() - 2) / 3
-
-	j := 0
-	out := make([]byte, b.Len()+numCommas+2) // 2 extra placeholders for a `$` and a `.`
-	for i, v := range b.Bytes() {
-		if i == (b.Len() - 2) {
-			out[j], _ = bytes.NewBufferString(".").ReadByte()
-			j++
-		} else if (i-1)%3 == 0 {
-			out[j], _ = bytes.NewBufferString(",").ReadByte()
-			j++
-		} else if i == 0 {
-			out[j], _ = bytes.NewBufferString("$").ReadByte()
-			j++
-		}
-		out[j] = v
-		j++
-	}
-	return string(out)
-}
-
 // Security structs hold information regarding a financial asset for the entire
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
@@ -83,25 +44,6 @@ func NewSecurity(tick Tick) *Security {
 	}
 }
 
-func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
-	numerator := lastAvg*Amount(nTicks) + tickAmt
-	return numerator / (Amount(nTicks) + 1)
-}
-
-func newMax(lastMax datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
-	if newPrice >= lastMax.Amount {
-		return datedMetric{Amount: newPrice, Date: timestamp}
-	}
-	return lastMax
-}
-
-func newMin(lastMin datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
-	if newPrice <= lastMin.Amount {
-		return datedMetric{Amount: newPrice, Date: timestamp}
-	}
-	return lastMin
-}
-
 func (s *Security) updateMetrics(tick Tick) {
 	go func() {
 		s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
@@ -125,11 +67,6 @@ func (s *Security) updateMetrics(tick Tick) {
 	}()
 }
 
-type datedMetric struct {
-	Amount Amount    `json:"amount"`
-	Date   time.Time `json:"date"`
-}
-
 // Position structs refer the holding of a financial asset.
 type Position struct {
 	Ticker              string
@@ -143,18 +80,18 @@ type Position struct {
 }
 
 func (pos *Position) updateMetrics(tick *Tick) {
-	go func() {
+	func() {
 		pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
 		pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
 		pos.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
 		pos.LastBid = datedMetric{tick.Bid, tick.Timestamp}
 		pos.NumTicks++
 	}()
-	go func() {
+	func() {
 		pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)
 		pos.MinBid = newMin(pos.MinBid, tick.Bid, tick.Timestamp)
 	}()
-	go func() {
+	func() {
 		pos.MaxAsk = newMax(pos.MaxAsk, tick.Ask, tick.Timestamp)
 		pos.MinAsk = newMin(pos.MinAsk, tick.Ask, tick.Timestamp)
 	}()
@@ -166,4 +103,62 @@ type Tick struct {
 	Bid, Ask         Amount
 	BidSize, AskSize Amount
 	Timestamp        time.Time
+}
+
+// Amount is a representation of fractional volumes. To get around floating-point erroneous behavior, multiply volume by 100 and cap it as a uint.
+type Amount uint64
+
+// FloatAmount converts a float64 value to an amount type. Can be thought of as a constructor for an Amount type.
+func FloatAmount(float float64) Amount {
+	return Amount(float * 100)
+}
+
+// Currency outputs amount as a USD amount.
+func (amt Amount) Currency() string {
+	str := strconv.Itoa(int(amt))
+
+	b := bytes.NewBufferString(str)
+	numCommas := (b.Len() - 2) / 3
+
+	j := 0
+	out := make([]byte, b.Len()+numCommas+2) // 2 extra placeholders for a `$` and a `.`
+	for i, v := range b.Bytes() {
+		if i == (b.Len() - 2) {
+			out[j], _ = bytes.NewBufferString(".").ReadByte()
+			j++
+		} else if (i-1)%3 == 0 {
+			out[j], _ = bytes.NewBufferString(",").ReadByte()
+			j++
+		} else if i == 0 {
+			out[j], _ = bytes.NewBufferString("$").ReadByte()
+			j++
+		}
+		out[j] = v
+		j++
+	}
+	return string(out)
+}
+
+type datedMetric struct {
+	Amount Amount    `json:"amount"`
+	Date   time.Time `json:"date"`
+}
+
+func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
+	numerator := lastAvg*Amount(nTicks) + tickAmt
+	return numerator / (Amount(nTicks) + 1)
+}
+
+func newMax(lastMax datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+	if newPrice >= lastMax.Amount {
+		return datedMetric{Amount: newPrice, Date: timestamp}
+	}
+	return lastMax
+}
+
+func newMin(lastMin datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+	if newPrice <= lastMin.Amount {
+		return datedMetric{Amount: newPrice, Date: timestamp}
+	}
+	return lastMin
 }

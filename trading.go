@@ -2,8 +2,15 @@ package porttools
 
 import (
 	"errors"
-	"time"
 )
+
+// Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
+type Algorithm interface {
+	// REVIEW: may want to move this to pipeline || simulation.
+	EntryLogic(*Tick) (*Order, bool)
+	ExitLogic(*Tick, *Order) (*Order, bool)
+	ValidOrder(*Portfolio, *Tick, *Order) bool
+}
 
 // CostMethod regards the type of accounting management rule
 // is implemented for selling securities.
@@ -14,98 +21,61 @@ const (
 	fifo
 )
 
-// Order struct hold information referring to the
-// details of an execution of a financial asset transaction.
-type Order struct {
-	// it's either buy or sell
-	Buy      bool
-	Status   OrderStatus
-	Logic    TradeLogic
-	Ticker   string
-	Price    Amount
-	Volume   Amount
-	Datetime time.Time
-}
-
-// OrderStatus variables refer to a status of an order's execution.
-type OrderStatus int
-
-const (
-	open OrderStatus = iota // 0
-	completed
-	canceled
-	expired // 3
-)
-
-// TradeLogic is used to identify when the order should be executed.
-type TradeLogic int
-
-const (
-	market TradeLogic = iota // 0
-	limit
-	stopLimit
-	stopLoss
-	dayTrade // 4
-)
-
 // Transact conducts agreement between Position and Order within a portfolio.
-func (port *Portfolio) Transact(order *Order, costMethod CostMethod) error {
+func (oms *OMS) Transact(order *Order) error {
 
 	switch order.Buy {
 	case true:
 		ok := func() bool { // check to see if order can be fulfilled.
-			port.RLock()
-			ok := (order.Volume * order.Price) <= port.Cash
-			port.RUnlock()
+			oms.port.RLock()
+			ok := (order.Volume * order.Price) <= oms.port.Cash
+			oms.port.RUnlock()
 			return ok
 		}()
 		if !ok { // if not ok, cancel order and return error.
 			order.Status = canceled
-			port.Orders = append(port.Orders, order)
+			go func() { oms.log.orderChan <- order }()
 			return errors.New("Not enough cash to fulfil order")
 		}
-		if _, exists := port.Active[order.Ticker]; !exists {
-			port.Lock()
-			port.Active[order.Ticker] = newPositionSlice()
-			port.Unlock()
+		if _, exists := oms.port.Active[order.Ticker]; !exists {
+			oms.port.Lock()
+			oms.port.Active[order.Ticker] = newPositionSlice()
+			oms.port.Unlock()
 		}
-
+		order.Status = open
 		// Create new Position and add it to according position slice.
-		posBought := &Position{
-			Ticker: order.Ticker, Volume: order.Volume,
-			BuyPrice: datedMetric{order.Price, order.Datetime},
-		}
-		port.Active[order.Ticker].Push(posBought)
-		port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
+		posBought := order.toPosition(order.Volume)
+		oms.port.Active[order.Ticker].Push(posBought)
+		oms.port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
 
 	case false: // sell
 		// Check to see if order can be fulfilled, if not, cancel order and return error.
-		if port.Active[order.Ticker].totalVolume < order.Volume {
+		if oms.port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = canceled
-			port.Orders = append(port.Orders, order)
+			go func() { oms.log.orderChan <- order }()
+
 			return errors.New("Not enough volume to satisfy order")
 		}
-		port.sell(*order, costMethod)
+		order.Status = closed
+		go func() {
+			oms.log.orderChan <- order
+			oms.sell(*order)
+		}()
 	}
-	order.Status = completed
-	// Add order to the Portfolio's Orders slice
-	// NOTE: may want to store in order book out of struct via channel instead
-	port.Orders = append(port.Orders, order)
-
 	return nil
 }
 
 // sell is a function that removes a Position's volume, as well as create
 // a new closed position. Updates a port's cash balance.
-func (port *Portfolio) sell(order Order, costMethod CostMethod) (err error) {
+func (oms *OMS) sell(order Order) (err error) {
 	// Update Cash Amount.
-	port.Lock()
-	port.Cash += order.Volume * order.Price
-	port.Unlock()
+	oms.port.Lock()
+	oms.port.Cash += order.Volume * order.Price
+	oms.port.Unlock()
 
 	for order.Volume > 0 {
 		var posToSell *Position
-		if posToSell = port.Active[order.Ticker].Peek(costMethod); posToSell == nil {
+		if posToSell = oms.port.Active[order.Ticker].Peek(oms.strategy.costMethod); posToSell == nil {
 			err = errors.New("No position to sell")
 			return
 		}
@@ -118,17 +88,18 @@ func (port *Portfolio) sell(order Order, costMethod CostMethod) (err error) {
 		}
 		posToSell.Volume -= sellAmt
 
-		closedPos := *posToSell
-		closedPos.Volume = sellAmt
-		closedPos.SellPrice = datedMetric{order.Price, order.Datetime}
-
-		port.Lock()
-		port.Closed[order.Ticker].Push(&closedPos)
-
 		if posToSell.Volume == 0 {
-			port.Closed[order.Ticker].Pop(costMethod)
+			_, popErr := oms.port.Active[order.Ticker].Pop(oms.strategy.costMethod)
+			if popErr != nil {
+				err = popErr
+				return
+			}
 		}
-		port.Unlock()
+		if oms.port.Active[order.Ticker].len == 0 {
+			oms.port.Lock()
+			delete(oms.port.Active, order.Ticker)
+			oms.port.Unlock()
+		}
 	}
-	return nil
+	return
 }
