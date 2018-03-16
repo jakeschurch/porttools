@@ -36,12 +36,6 @@ func findKey(A []string, toFind string) bool {
 	return false
 }
 
-// Queue is an implementation of a FIFO container type.
-type Queue struct {
-	len    int
-	values []*Node
-}
-
 // Enqueue stores value in the queue.
 func (queue *Queue) Enqueue(node *Node) {
 	queue.len++
