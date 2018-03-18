@@ -34,7 +34,7 @@ func (oms *OMS) Transact(order *Order) error {
 		}()
 		if !ok { // if not ok, cancel order and return error.
 			order.Status = canceled
-			go func() { oms.log.orderChan <- order }()
+			go func() { oms.prfmLog.orderChan <- order }()
 			return errors.New("Not enough cash to fulfil order")
 		}
 		if _, exists := oms.port.Active[order.Ticker]; !exists {
@@ -47,19 +47,20 @@ func (oms *OMS) Transact(order *Order) error {
 		posBought := order.toPosition(order.Volume)
 		oms.port.Active[order.Ticker].Push(posBought)
 		oms.port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
+		go func() { oms.openChan <- order }()
 
 	case false: // sell
 		// Check to see if order can be fulfilled
 		// if not, cancel order and return error
 		if oms.port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = canceled
-			go func() { oms.log.orderChan <- order }()
+			go func() { oms.prfmLog.orderChan <- order }()
 
 			return errors.New("Not enough volume to satisfy order")
 		}
 		order.Status = closed
 		go func() {
-			oms.log.orderChan <- order
+			oms.prfmLog.orderChan <- order
 			oms.sell(*order)
 		}()
 	}
@@ -76,7 +77,7 @@ func (oms *OMS) sell(order Order) (err error) {
 
 	for order.Volume > 0 {
 		var posToSell *Position
-		if posToSell = oms.port.Active[order.Ticker].Peek(oms.strategy.costMethod); posToSell == nil {
+		if posToSell = oms.port.Active[order.Ticker].Peek(oms.strat.costMethod); posToSell == nil {
 			err = errors.New("No position to sell")
 			return
 		}
@@ -93,11 +94,11 @@ func (oms *OMS) sell(order Order) (err error) {
 		closedPos.Volume = sellVolume
 		closedPos.SellPrice = datedMetric{order.Price, order.Datetime}
 		go func() {
-			oms.log.posChan <- &closedPos
+			oms.prfmLog.posChan <- &closedPos
 		}()
 
 		if posToSell.Volume == 0 {
-			_, popErr := oms.port.Active[order.Ticker].Pop(oms.strategy.costMethod)
+			_, popErr := oms.port.Active[order.Ticker].Pop(oms.strat.costMethod)
 			if popErr != nil {
 				err = popErr
 				return

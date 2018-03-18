@@ -5,12 +5,13 @@ import (
 	"time"
 )
 
-func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string) *OMS {
+func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt OutputFmt) *OMS {
 	return &OMS{
 		port:       NewPortfolio(cashAmt),
+		benchmark:  newIndex(),
 		openOrders: make([]*Order, 0),
-		strategy:   newStrategy(toIgnore, costMethod),
-		log:        newPerfLog(),
+		strat:      newStrategy(toIgnore, costMethod),
+		prfmLog:    newPrfmLog(outFmt),
 		// create channels
 		orderChan: make(chan *Order),
 		tickChan:  make(chan *Tick),
@@ -23,19 +24,27 @@ type OMS struct {
 	port       *Portfolio
 	benchmark  *Index
 	openOrders []*Order
-	strategy   *strategy
-	log        *PerfLog
+	strat      *strategy
+	prfmLog    *PrfmLog
 	// Channels
 	orderChan chan *Order
 	tickChan  chan *Tick
+	openChan  chan *Order
 	closing   chan struct{}
 }
 
 // handle is the function that allows for OMS to integrate as a part of the simulation pipeline.
 func (oms *OMS) handle() {
 	go func() {
-		for oms.orderChan != nil || oms.tickChan != nil {
+		for oms.orderChan != nil || oms.tickChan != nil || oms.openChan != nil {
 			select {
+			case tick, ok := <-oms.tickChan:
+				if !ok {
+					log.Println("OMS's tick channel has been closed.")
+					oms.tickChan = nil
+					continue
+				}
+				go oms.processTick(tick)
 
 			case order, ok := <-oms.orderChan:
 				if !ok {
@@ -46,24 +55,28 @@ func (oms *OMS) handle() {
 				// REVIEW: use go func?
 				oms.Transact(order)
 
-			case tick, ok := <-oms.tickChan:
+			case openOrder, ok := <-oms.openChan:
 				if !ok {
-					log.Println("OMS's tick channel has been closed.")
-					oms.tickChan = nil
+					log.Println("OMS's open order channel has been closed.")
+					oms.openChan = nil
 					continue
 				}
-				go oms.processTick(tick)
+				oms.openOrders = append(oms.openOrders, openOrder)
+
 				// default:
 				// 	time.Sleep(1 * time.Millisecond)
 			}
 		}
-		// TEMP: where should these actually go?
+		// REVIEW TEMP: where should these actually go?
 		close(oms.tickChan)
 		close(oms.orderChan)
 	}()
 	<-oms.closing
 }
 func (oms *OMS) closeHandle() {
+	oms.getResults()
+
+	oms.prfmLog.quit()
 	oms.closing <- struct{}{}
 }
 
@@ -91,18 +104,21 @@ func (oms *OMS) closeOrders() {
 }
 
 func (oms *OMS) processTick(tick *Tick) {
-	if _, exists := oms.strategy.ignore[tick.Ticker]; !exists {
+	if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
 		oms.benchmark.updateSecurity(tick)
 
-		if order, signal := oms.strategy.algo.EntryLogic(tick); signal && oms.strategy.algo.ValidOrder(oms.port, tick, order) {
+		if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
+			oms.strat.algo.ValidOrder(oms.port, tick, order) {
+
 			go func() { oms.orderChan <- order }()
 		}
+
 		if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
 
 			for _, slicedOrder := range slice {
 				go func(openOrder *Order) {
-					if order, signal := oms.strategy.algo.ExitLogic(tick, openOrder); signal &&
-						oms.strategy.algo.ValidOrder(oms.port, tick, openOrder) {
+					if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
+						oms.strat.algo.ValidOrder(oms.port, tick, openOrder) {
 						go func() { oms.orderChan <- order }()
 					}
 				}(slicedOrder)
