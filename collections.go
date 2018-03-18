@@ -30,6 +30,14 @@ func (port *Portfolio) updatePositions(tick *Tick) {
 	}
 }
 
+// TODO REVIEW: how to add easy accessibility for populating index without having
+// to scan two maps? (being Instruments map & toIgnore map)
+func newIndex() *Index {
+	return &Index{
+		Instruments: make(map[string]*Security),
+	}
+}
+
 // Index structs allow for the use of a benchmark to compare financial performance,
 // Index could refer to one Security or many.
 type Index struct {
@@ -43,7 +51,7 @@ func (index *Index) updateSecurity(tick *Tick) (ok bool) {
 		index.Instruments[tick.Ticker] = NewSecurity(*tick)
 		index.Unlock()
 	} else {
-		security.updateMetrics(*tick)
+		go security.updateMetrics(*tick)
 	}
 	return true
 }

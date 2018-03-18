@@ -14,7 +14,7 @@ import (
 
 // LoadAlgorithm ensures that an Algorithm interface is implemented in the Simulation pipeline to be used by other functions.
 func LoadAlgorithm(sim *Simulation, algo Algorithm) bool {
-	sim.btEngine.OMS.strategy.algo = algo
+	sim.oms.strat.algo = algo
 	return true
 }
 
@@ -27,11 +27,11 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 	}
 	startingCash := FloatAmount(cfg.Backtest.StartCashAmt)
 	sim := &Simulation{
-		// REVIEW: may want to swap btEngine with OMS...or even embed OMS instead.
-		btEngine: newBacktestEngine(
+		oms: newOMS(
 			startingCash,
 			cfg.Simulation.Costmethod,
 			cfg.Backtest.IgnoreSecurities,
+			cfg.Simulation.OutFmt,
 		),
 		inputChans: make([]*inputChan, 0),
 		// create channels.
@@ -44,8 +44,8 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
-	btEngine *BacktestEngine
-	config   *Config
+	oms    *OMS
+	config *Config
 	// Channels
 	closing    chan struct{}
 	inputChans []*inputChan
@@ -56,9 +56,10 @@ type Simulation struct {
 // run acts as the simulation's primary pipeline function; directing everything to where it needs to go.
 func (sim *Simulation) run() {
 
-	if sim.btEngine.OMS.strategy.algo == nil {
+	if sim.oms.strat.algo == nil {
 		panic("Algorithm needs to be implemented by end-user")
 	}
+	sim.oms.prfmLog.run()
 	sim.startInput <- true
 
 	go func() {
@@ -70,7 +71,7 @@ func (sim *Simulation) run() {
 
 			case <-sim.loadChan:
 				if len(sim.inputChans) > 1 {
-					sim.popFly()
+					sim.popChan()
 				} else {
 					sim.conclude()
 				}
@@ -80,38 +81,6 @@ func (sim *Simulation) run() {
 		}
 	}()
 	<-sim.closing
-}
-
-// TODO:
-func (sim *Simulation) conclude() {
-	sim.btEngine.OMS.closeHandle()
-
-	sim.close()
-}
-
-// TODO: rename later to make more sense
-func (sim *Simulation) popFly() {
-	done := make(chan struct{})
-
-	sim.inputChans[0].deconstruct()
-
-	sim.inputChans = sim.inputChans[0:]
-	inChan := sim.inputChans[0]
-
-	go func() {
-		for tick := range inChan.tickC {
-			go func(t *Tick) { sim.simulateData(t) }(tick)
-		}
-		done <- struct{}{}
-	}()
-	<-done
-}
-
-func (sim *Simulation) simulateData(tick *Tick) {
-	if _, exists := sim.btEngine.OMS.strategy.ignore[tick.Ticker]; exists {
-		return
-	}
-	go func() { sim.btEngine.OMS.tickChan <- tick }()
 }
 
 func (sim *Simulation) loadInput() error {
@@ -129,7 +98,7 @@ func (sim *Simulation) loadInput() error {
 			sim.loadData(sim.inputChans[i+1], file)
 		}
 	}()
-	sim.popFly()
+	sim.popChan()
 
 	return nil
 }
@@ -219,6 +188,37 @@ func (sim *Simulation) loadTicks(quit chan<- struct{}, inChan *inputChan, date t
 
 	sim.loadChan <- true
 	return nil
+}
+
+func (sim *Simulation) popChan() {
+	done := make(chan struct{})
+
+	sim.inputChans[0].deconstruct()
+
+	sim.inputChans = sim.inputChans[0:]
+	inChan := sim.inputChans[0]
+
+	go func() {
+		for tick := range inChan.tickC {
+			go func(t *Tick) { sim.simulateData(t) }(tick)
+		}
+		done <- struct{}{}
+	}()
+	<-done
+}
+
+// TODO:
+func (sim *Simulation) conclude() {
+	sim.oms.closeHandle()
+
+	sim.close()
+}
+
+func (sim *Simulation) simulateData(tick *Tick) {
+	if _, exists := sim.oms.strat.ignore[tick.Ticker]; exists {
+		return
+	}
+	go func() { sim.oms.tickChan <- tick }()
 }
 
 // close sends a signal to close all channels and exit current processes

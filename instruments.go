@@ -9,7 +9,7 @@ import (
 
 // Security structs hold information regarding a financial asset for the entire
 // life of the financial asset in a trading environment. Because a Security struct
-// holds aggregate information regarding a financial asset, it is embeded into an Index or Benchmark.
+// holds aggregate information regarding a financial asset, it is embedded into an Index or Benchmark.
 type Security struct {
 	Ticker              string
 	NumTicks            uint
@@ -45,21 +45,21 @@ func NewSecurity(tick Tick) *Security {
 }
 
 func (s *Security) updateMetrics(tick Tick) {
-		s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
-		s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
-		s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
-		s.AvgAskSize = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
+	s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
+	s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
+	s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
+	s.AvgAskSize = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
 
-		s.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
-		s.LastBid = datedMetric{tick.Bid, tick.Timestamp}
-    
-    s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
-		s.MinBid = newMin(s.MinBid, tick.Bid, tick.Timestamp)
-		s.MaxBidSize = newMax(s.MaxBidSize, tick.BidSize, tick.Timestamp)
-		s.MinBidSize = newMin(s.MinBidSize, tick.BidSize, tick.Timestamp)
+	s.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
+	s.LastBid = datedMetric{tick.Bid, tick.Timestamp}
 
-		s.MaxAsk = newMax(s.MaxAsk, tick.Ask, tick.Timestamp)
-		s.MinAsk = newMin(s.MinAsk, tick.Ask, tick.Timestamp)
+	s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
+	s.MinBid = newMin(s.MinBid, tick.Bid, tick.Timestamp)
+	s.MaxBidSize = newMax(s.MaxBidSize, tick.BidSize, tick.Timestamp)
+	s.MinBidSize = newMin(s.MinBidSize, tick.BidSize, tick.Timestamp)
+
+	s.MaxAsk = newMax(s.MaxAsk, tick.Ask, tick.Timestamp)
+	s.MinAsk = newMin(s.MinAsk, tick.Ask, tick.Timestamp)
 }
 
 // Position structs refer the holding of a financial asset.
@@ -75,21 +75,19 @@ type Position struct {
 }
 
 func (pos *Position) updateMetrics(tick *Tick) {
-	func() {
-		pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
-		pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
-		pos.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
-		pos.LastBid = datedMetric{tick.Bid, tick.Timestamp}
-		pos.NumTicks++
-	}()
-	func() {
-		pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)
-		pos.MinBid = newMin(pos.MinBid, tick.Bid, tick.Timestamp)
-	}()
-	func() {
-		pos.MaxAsk = newMax(pos.MaxAsk, tick.Ask, tick.Timestamp)
-		pos.MinAsk = newMin(pos.MinAsk, tick.Ask, tick.Timestamp)
-	}()
+
+	pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
+	pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
+
+	pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)
+	pos.MinBid = newMin(pos.MinBid, tick.Bid, tick.Timestamp)
+
+	pos.MaxAsk = newMax(pos.MaxAsk, tick.Ask, tick.Timestamp)
+	pos.MinAsk = newMin(pos.MinAsk, tick.Ask, tick.Timestamp)
+
+	pos.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
+	pos.LastBid = datedMetric{tick.Bid, tick.Timestamp}
+	pos.NumTicks++
 }
 
 // Tick structs holds information about a financial asset at a specific point in time.
@@ -109,7 +107,7 @@ func FloatAmount(float float64) Amount {
 }
 
 // Currency outputs amount as a USD amount.
-func (amt Amount) Currency() string {
+func (amt Amount) ToCurrency() string {
 	str := strconv.Itoa(int(amt))
 
 	b := bytes.NewBufferString(str)
@@ -131,6 +129,51 @@ func (amt Amount) Currency() string {
 		out[j] = v
 		j++
 	}
+	return string(out)
+}
+
+func (amt Amount) ToVolume() string {
+	str := strconv.Itoa(int(amt))
+
+	b := bytes.NewBufferString(str)
+	numCommas := (b.Len() - 2) / 3
+
+	j := 0
+	out := make([]byte, b.Len()+numCommas+1) // 1 extra placeholders for a `.`
+	for i, v := range b.Bytes() {
+		if i == (b.Len() - 2) {
+			out[j], _ = bytes.NewBufferString(".").ReadByte()
+			j++
+		} else if (i-1)%3 == 0 {
+			out[j], _ = bytes.NewBufferString(",").ReadByte()
+			j++
+		}
+		out[j] = v
+		j++
+	}
+	return string(out)
+}
+
+func (amt Amount) ToPercent() string {
+	str := strconv.Itoa(int(amt))
+
+	b := bytes.NewBufferString(str)
+	numCommas := (b.Len() - 2) / 3
+
+	j := 0
+	out := make([]byte, b.Len()+numCommas+2) // 1 extra placeholders for a `.`
+	for i, v := range b.Bytes() {
+		if i == (b.Len() - 2) {
+			out[j], _ = bytes.NewBufferString(".").ReadByte()
+			j++
+		} else if (i-1)%3 == 0 {
+			out[j], _ = bytes.NewBufferString(",").ReadByte()
+			j++
+		}
+		out[j] = v
+		j++
+	}
+	out[j], _ = bytes.NewBufferString("%").ReadByte()
 	return string(out)
 }
 
