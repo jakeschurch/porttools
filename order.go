@@ -7,7 +7,7 @@ import (
 
 func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt OutputFmt) *OMS {
 	return &OMS{
-		port:       NewPortfolio(cashAmt),
+		Port:       NewPortfolio(cashAmt),
 		benchmark:  newIndex(),
 		openOrders: make([]*Order, 0),
 		strat:      newStrategy(toIgnore, costMethod),
@@ -21,7 +21,7 @@ func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt Out
 
 // OMS acts as an `Order Management System` to test trading signals and fill orders.
 type OMS struct {
-	port       *Portfolio
+	Port       *Portfolio
 	benchmark  *Index
 	openOrders []*Order
 	strat      *strategy
@@ -91,8 +91,8 @@ func (oms *OMS) closeOrders() {
 		Logic:    market,
 		Ticker:   openOrder.Ticker,
 		Volume:   openOrder.Volume,
-		Price:    oms.port.Active[openOrder.Ticker].positions[0].LastBid.Amount,
-		Datetime: oms.port.Active[openOrder.Ticker].positions[0].LastBid.Date,
+		Price:    oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Amount,
+		Datetime: oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Date,
 	}
 	go func(order *Order) { oms.orderChan <- order }(newOrder)
 
@@ -108,7 +108,7 @@ func (oms *OMS) processTick(tick *Tick) {
 		oms.benchmark.updateSecurity(tick)
 
 		if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
-			oms.strat.algo.ValidOrder(oms.port, tick, order) {
+			oms.strat.algo.ValidOrder(oms, order) {
 
 			go func() { oms.orderChan <- order }()
 		}
@@ -118,12 +118,12 @@ func (oms *OMS) processTick(tick *Tick) {
 			for _, slicedOrder := range slice {
 				go func(openOrder *Order) {
 					if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
-						oms.strat.algo.ValidOrder(oms.port, tick, openOrder) {
+						oms.strat.algo.ValidOrder(oms, order) {
 						go func() { oms.orderChan <- order }()
 					}
 				}(slicedOrder)
 			}
-			oms.port.updatePositions(tick)
+			oms.Port.updatePositions(tick)
 		}
 	}
 }
@@ -137,6 +137,20 @@ func (oms *OMS) existsInOrders(ticker string) []*Order {
 		}
 	}
 	return orders
+}
+
+// NewMarketOrder returns a buy order that will execute at nearest price.
+// TEMP(NewMarketOrder) TODO
+func NewMarketOrder(buy bool, ticker string, price, volume Amount, datetime time.Time) *Order {
+	return &Order{
+		Buy:      buy,
+		Status:   open,
+		Logic:    market,
+		Ticker:   ticker,
+		Price:    price,
+		Volume:   volume,
+		Datetime: datetime,
+	}
 }
 
 // Order struct hold information referring to the
@@ -168,7 +182,7 @@ type OrderStatus int
 const (
 	open OrderStatus = iota // 0
 	closed
-	canceled
+	cancelled
 	expired // 3
 )
 

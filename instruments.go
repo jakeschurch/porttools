@@ -106,7 +106,7 @@ func FloatAmount(float float64) Amount {
 	return Amount(float * 100)
 }
 
-// Currency outputs amount as a USD amount.
+// ToCurrency returns a string representation of a USD amount.
 func (amt Amount) ToCurrency() string {
 	str := strconv.Itoa(int(amt))
 
@@ -132,6 +132,7 @@ func (amt Amount) ToCurrency() string {
 	return string(out)
 }
 
+// ToVolume returns a string representation of a quantity or volume.
 func (amt Amount) ToVolume() string {
 	str := strconv.Itoa(int(amt))
 
@@ -154,6 +155,7 @@ func (amt Amount) ToVolume() string {
 	return string(out)
 }
 
+// ToPercent returns a string representation of a percent.
 func (amt Amount) ToPercent() string {
 	str := strconv.Itoa(int(amt))
 

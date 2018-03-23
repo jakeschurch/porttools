@@ -9,7 +9,7 @@ type Algorithm interface {
 	// REVIEW: may want to move this to pipeline || simulation.
 	EntryLogic(*Tick) (*Order, bool)
 	ExitLogic(*Tick, *Order) (*Order, bool)
-	ValidOrder(*Portfolio, *Tick, *Order) bool
+	ValidOrder(*OMS, *Order) bool
 }
 
 // CostMethod regards the type of accounting management rule
@@ -27,33 +27,33 @@ func (oms *OMS) Transact(order *Order) error {
 	switch order.Buy {
 	case true: // in lieu of a buy function
 		ok := func() bool { // check to see if order can be fulfilled.
-			oms.port.RLock()
-			ok := (order.Volume * order.Price) <= oms.port.Cash
-			oms.port.RUnlock()
+			oms.Port.RLock()
+			ok := (order.Volume * order.Price) <= oms.Port.Cash
+			oms.Port.RUnlock()
 			return ok
 		}()
 		if !ok { // if not ok, cancel order and return error.
-			order.Status = canceled
+			order.Status = cancelled
 			go func() { oms.prfmLog.orderChan <- order }()
 			return errors.New("Not enough cash to fulfil order")
 		}
-		if _, exists := oms.port.Active[order.Ticker]; !exists {
-			oms.port.Lock()
-			oms.port.Active[order.Ticker] = newPositionSlice()
-			oms.port.Unlock()
+		if _, exists := oms.Port.Active[order.Ticker]; !exists {
+			oms.Port.Lock()
+			oms.Port.Active[order.Ticker] = newPositionSlice()
+			oms.Port.Unlock()
 		}
 		order.Status = open
 		// Create new Position and add it to according position slice.
 		posBought := order.toPosition(order.Volume)
-		oms.port.Active[order.Ticker].Push(posBought)
-		oms.port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
+		oms.Port.Active[order.Ticker].Push(posBought)
+		oms.Port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
 		go func() { oms.openChan <- order }()
 
 	case false: // sell
 		// Check to see if order can be fulfilled
 		// if not, cancel order and return error
-		if oms.port.Active[order.Ticker].totalVolume < order.Volume {
-			order.Status = canceled
+		if oms.Port.Active[order.Ticker].totalVolume < order.Volume {
+			order.Status = cancelled
 			go func() { oms.prfmLog.orderChan <- order }()
 
 			return errors.New("Not enough volume to satisfy order")
@@ -71,13 +71,13 @@ func (oms *OMS) Transact(order *Order) error {
 // a new closed position. Updates a port's cash balance.
 func (oms *OMS) sell(order Order) (err error) {
 	// Update Cash Amount.
-	oms.port.Lock()
-	oms.port.Cash += order.Volume * order.Price
-	oms.port.Unlock()
+	oms.Port.Lock()
+	oms.Port.Cash += order.Volume * order.Price
+	oms.Port.Unlock()
 
 	for order.Volume > 0 {
 		var posToSell *Position
-		if posToSell = oms.port.Active[order.Ticker].Peek(oms.strat.costMethod); posToSell == nil {
+		if posToSell = oms.Port.Active[order.Ticker].Peek(oms.strat.costMethod); posToSell == nil {
 			err = errors.New("No position to sell")
 			return
 		}
@@ -98,16 +98,16 @@ func (oms *OMS) sell(order Order) (err error) {
 		}()
 
 		if posToSell.Volume == 0 {
-			_, popErr := oms.port.Active[order.Ticker].Pop(oms.strat.costMethod)
+			_, popErr := oms.Port.Active[order.Ticker].Pop(oms.strat.costMethod)
 			if popErr != nil {
 				err = popErr
 				return
 			}
 		}
-		if oms.port.Active[order.Ticker].len == 0 {
-			oms.port.Lock()
-			delete(oms.port.Active, order.Ticker)
-			oms.port.Unlock()
+		if oms.Port.Active[order.Ticker].len == 0 {
+			oms.Port.Lock()
+			delete(oms.Port.Active, order.Ticker)
+			oms.Port.Unlock()
 		}
 	}
 	return

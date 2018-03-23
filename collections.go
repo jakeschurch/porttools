@@ -38,7 +38,7 @@ func newIndex() *Index {
 	}
 }
 
-// Index structs allow for the use of a benchmark to compare financial performance,
+// Index struct allow for the use of a benchmark to compare financial performance,
 // Index could refer to one Security or many.
 type Index struct {
 	Instruments map[string]*Security

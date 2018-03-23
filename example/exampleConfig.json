@@ -15,20 +15,19 @@
     },
     "backtest": {
         "startCashAmt": 100000.00,
-        "ignoreSecurities": ["AAPL"],
+        "ignoreSecurities": [],
         "Slippage": 0.00,
         "Commission": 0.00
     },
     "simulation": {
         "startDate": "10/20/2015",
         "endDate": "10/25/2015",
-        "barRate": 2,
+        "barRate": 1,
         "costmethod": 0,
         "outputFormat": 0
     },
     "benchmark": {
         "use": true,
         "update": false,
-
     }
 }
