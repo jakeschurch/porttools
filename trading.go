@@ -2,6 +2,7 @@ package porttools
 
 import (
 	"errors"
+	"log"
 )
 
 // Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
@@ -23,7 +24,7 @@ const (
 
 // Transact conducts agreement between Position and Order within a portfolio.
 func (oms *OMS) Transact(order *Order) error {
-
+	log.Println("Transacting order...")
 	switch order.Buy {
 	case true: // in lieu of a buy function
 		ok := func() bool { // check to see if order can be fulfilled.

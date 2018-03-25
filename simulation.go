@@ -43,7 +43,6 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 		closing:      make(chan struct{}),
 		processTicks: make(chan struct{}),
 		waitOnInput:  make(chan struct{}),
-		tickMeta:     make(chan chan *Tick),
 	}
 	return sim, nil
 }
@@ -56,7 +55,6 @@ type Simulation struct {
 	// Channels
 	inputChans   []*inputChan
 	closing      chan struct{}
-	tickMeta     chan chan *Tick
 	processTicks chan struct{}
 	waitOnInput  chan struct{}
 }
@@ -67,41 +65,46 @@ func (sim *Simulation) Run() {
 	if sim.oms.strat.algo == nil {
 		log.Fatal("Algorithm needs to be implemented by end-user")
 	}
-	go sim.oms.handle()
 	go sim.oms.prfmLog.run()
 
 	log.Println("loading input...")
 	go sim.loadInput()
 
-	<-sim.processTicks // Wait for signal to start processing tick data
-	close(sim.processTicks)
+	// <-sim.processTicks // Wait for signal to start processing tick data
+	// close(sim.processTicks)
 
-	go func() {
-		for {
-			select {
-			case tickCh, ok := <-sim.tickMeta:
-
-				if !ok {
-					break
-				}
-				log.Println("Simulating!!!!")
-				sim.oms.processTick(tickCh)
-				// default:
-				// 	time.Sleep(1 * time.Millisecond)
-			}
-		}
-	}()
-
-	for index := range sim.inputChans {
-		if index > 0 {
-			sim.tickMeta <- sim.inputChans[index].tickC
-		}
-	}
-
+	// go func(tickChan *) {
+	// 	for {
+	// 		select {
+	// 		case tick, ok := <-*tickCh:
+	//
+	// 			if !ok {
+	// 				sim.Lock()
+	// 				if len(sim.inputChans) > 1 {
+	// 					log.Println(len(sim.inputChans))
+	// 					log.Println("re-slicing inputChans")
+	// 					sim.inputChans = sim.inputChans[0:]
+	// 					sim.Unlock()
+	// 					*tickCh = nil
+	// 					goto restart
+	// 				} else {
+	// 					sim.conclude()
+	// 					break
+	// 				}
+	// 			}
+	// 			log.Println("Simulating!!!!")
+	// 			sim.simulateData(tick)
+	// 			// default:
+	// 			// 	time.Sleep(1 * time.Millisecond)
+	// 		}
+	// 	}
+	// }()
 	<-sim.closing
 }
 
 func (sim *Simulation) loadInput() error {
+	var filedate time.Time
+
 	sim.RLock()
 	simCfg := *sim.config
 	sim.RUnlock()
@@ -113,133 +116,118 @@ func (sim *Simulation) loadInput() error {
 		return globErr
 	}
 
-	// add extra bucket for sentinel value
-	sim.inputChans = make([]*inputChan, len(fileGlob)+1)
-	sim.inputChans[0] = newInputChan()
-	close(sim.inputChans[0].tickC)
-
-	go func() { sim.processTicks <- struct{}{} }()
-
-	sim.RLock()
-	for i, file := range fileGlob {
-		inChan := sim.inputChans[i+1]
-		inChan = newInputChan()
-		go func(index int, file string) { sim.loadData(inChan, file, simCfg) }(i, file)
-	}
-	sim.RUnlock()
-
-	<-sim.waitOnInput
-	log.Println("done waiting")
-	return nil
-}
-
-func (sim *Simulation) loadData(inChan *inputChan, file string, simCfg Config) (err error) {
-	log.Println("Loading data from:", file)
-	datafile, fileErr := os.Open(file)
-
-	if fileErr != nil {
-		log.Fatal("File cannot be loaded")
-		panic("File cannot be loaded")
-	}
-	r := csv.NewReader(datafile)
-
-	if delim, _ := utf8.DecodeRuneInString(simCfg.File.Delim); delim == utf8.RuneError {
-		log.Fatal("delim cannot be parsed")
-		// return errors.New("File delimiter could not be parsed")
-	} else {
-		r.Comma = delim
-	}
-	if simCfg.File.Headers == true {
-		r.Read()
-	}
+	inputChan := newInputChan()
 
 	go func() {
 		for {
-			record, recordErr := r.Read()
-			if recordErr != nil {
-				if recordErr == io.EOF {
-					break
-				} else {
-					log.Fatal("Error reading record from file")
-				}
+			select {
+			case record := <-inputChan.recordC:
+				sim.prepRecord(inputChan.tickC, record, filedate, simCfg)
+
+			case tick := <-inputChan.tickC:
+				sim.oms.processTick(tick)
 			}
-			inChan.recordC <- record
 		}
-		close(inChan.recordC)
 	}()
 
-	lastUnderscore := strings.LastIndex(file, "_")
-	fileDate := file[lastUnderscore+1:]
+	for _, file := range fileGlob {
+		log.Println("Loading data from:", file)
+		datafile, fileErr := os.Open(file)
 
-	lastDate, dateErr := time.Parse(simCfg.File.ExampleDate, fileDate)
-	if dateErr != nil {
-		log.Fatal("Date cannot be parsed")
+		if fileErr != nil {
+			log.Fatal("File cannot be loaded")
+			panic("File cannot be loaded")
+		}
+		r := csv.NewReader(datafile)
+
+		if delim, _ := utf8.DecodeRuneInString(simCfg.File.Delim); delim == utf8.RuneError {
+			log.Fatal("delim cannot be parsed")
+			// return errors.New("File delimiter could not be parsed")
+		} else {
+			r.Comma = delim
+		}
+		if simCfg.File.Headers == true {
+			r.Read()
+		}
+
+		lastUnderscore := strings.LastIndex(file, "_")
+		fileDate := file[lastUnderscore+1:]
+
+		lastDate, dateErr := time.Parse(simCfg.File.ExampleDate, fileDate)
+		if dateErr != nil {
+			log.Fatal("Date cannot be parsed")
+		}
+		filedate = lastDate
+
+		done := make(chan struct{})
+		go func(done chan struct{}) {
+
+			for {
+				record, recordErr := r.Read()
+				if recordErr != nil {
+					if recordErr == io.EOF {
+						break
+					} else {
+						log.Fatal("Error reading record from file")
+					}
+				}
+				inputChan.recordC <- record
+			}
+			close(inputChan.recordC)
+			done <- struct{}{}
+		}(done)
+		<-done
 	}
 
-	log.Println("Loading ticks")
-	quit := make(chan struct{})
-	go sim.loadTicks(quit, inChan, lastDate, simCfg)
+	go func() { sim.processTicks <- struct{}{} }()
 
-	// TODO:
-	// if tickErr := <-quit; tickErr != nil {
-	// 	return tickErr
-	// }
-	<-quit
-	log.Println("quitting read")
-	datafile.Close()
-	log.Println("Done reading data from", file)
-	return
+	<-sim.waitOnInput
+	return nil
 }
 
 // TODO: add logging statements for if things get `hairy`
-func (sim *Simulation) loadTicks(quit chan<- struct{}, inChan *inputChan, date time.Time, simCfg Config) {
+func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate time.Time, simCfg Config) {
 	var loadErr error
-	for record := range inChan.recordC {
 
-		log.Println("loading tick...")
-		tick := new(Tick)
-		tick.Ticker = record[simCfg.File.Columns.Ticker]
-		log.Println(tick.Ticker)
+	tick := new(Tick)
+	tick.Ticker = record[simCfg.File.Columns.Ticker]
 
-		bid, bidErr := strconv.ParseFloat(record[simCfg.File.Columns.Bid], 64)
-		if bidErr != nil {
-			loadErr = errors.New("Bid Price could not be parsed")
-		}
-		tick.Bid = FloatAmount(bid)
-
-		bidSize, bidSzErr := strconv.ParseFloat(record[simCfg.File.Columns.BidSize], 64)
-		if bidSzErr != nil {
-			loadErr = errors.New("Bid Size could not be parsed")
-		}
-		tick.BidSize = FloatAmount(bidSize)
-
-		ask, askErr := strconv.ParseFloat(record[simCfg.File.Columns.Ask], 64)
-		if askErr != nil {
-			loadErr = errors.New("Ask Price could not be parsed")
-		}
-		tick.Ask = FloatAmount(ask)
-
-		askSize, askSzErr := strconv.ParseFloat(record[simCfg.File.Columns.AskSize], 64)
-		if askSzErr != nil {
-			loadErr = errors.New("Ask Size could not be parsed")
-		}
-		tick.AskSize = FloatAmount(askSize)
-
-		tickDuration, timeErr := time.ParseDuration(record[simCfg.File.Columns.Timestamp] + simCfg.File.TimestampUnit)
-
-		if timeErr != nil {
-			loadErr = timeErr
-		}
-		tick.Timestamp = date.Add(tickDuration)
-
-		if loadErr != nil {
-			log.Println(loadErr)
-			log.Fatal("record could not be loaded")
-		}
-		inChan.tickC <- tick
+	bid, bidErr := strconv.ParseFloat(record[simCfg.File.Columns.Bid], 64)
+	if bidErr != nil {
+		loadErr = errors.New("Bid Price could not be parsed")
 	}
-	close(inChan.tickC)
-	quit <- struct{}{}
+	tick.Bid = FloatAmount(bid)
+
+	bidSize, bidSzErr := strconv.ParseFloat(record[simCfg.File.Columns.BidSize], 64)
+	if bidSzErr != nil {
+		loadErr = errors.New("Bid Size could not be parsed")
+	}
+	tick.BidSize = FloatAmount(bidSize)
+
+	ask, askErr := strconv.ParseFloat(record[simCfg.File.Columns.Ask], 64)
+	if askErr != nil {
+		loadErr = errors.New("Ask Price could not be parsed")
+	}
+	tick.Ask = FloatAmount(ask)
+
+	askSize, askSzErr := strconv.ParseFloat(record[simCfg.File.Columns.AskSize], 64)
+	if askSzErr != nil {
+		loadErr = errors.New("Ask Size could not be parsed")
+	}
+	tick.AskSize = FloatAmount(askSize)
+
+	tickDuration, timeErr := time.ParseDuration(record[simCfg.File.Columns.Timestamp] + simCfg.File.TimestampUnit)
+
+	if timeErr != nil {
+		loadErr = timeErr
+	}
+	tick.Timestamp = filedate.Add(tickDuration)
+
+	if loadErr != nil {
+		log.Println(loadErr)
+		log.Fatal("record could not be loaded")
+	}
+	outChan <- tick
 }
 
 // TODO:
@@ -247,6 +235,13 @@ func (sim *Simulation) conclude() {
 	sim.oms.closeHandle()
 
 	sim.close()
+}
+
+func (sim *Simulation) simulateData(tick *Tick) {
+	if _, exists := sim.oms.strat.ignore[tick.Ticker]; exists {
+		return
+	}
+	go func() { sim.oms.tickChan <- tick }()
 }
 
 // close sends a signal to close all channels and exit current processes

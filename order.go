@@ -2,22 +2,28 @@ package porttools
 
 import (
 	"log"
+	"sync"
 	"time"
 )
 
 // TODO:  rebalance routine for entry/exit orders
 func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt OutputFmt) *OMS {
-	return &OMS{
+	oms := OMS{
 		Port:       NewPortfolio(cashAmt),
 		benchmark:  newIndex(),
 		openOrders: make([]*Order, 0),
 		strat:      newStrategy(toIgnore, costMethod),
 		prfmLog:    newPrfmLog(outFmt),
 		// create channels
-		orderChan: make(chan *Order),
+		orderChan: make(chan *Order, 1024),
+		benchChan: make(chan *Tick, 1024),
+		portChan:  make(chan *Tick, 1024),
 		tickChan:  make(chan *Tick),
 		closing:   make(chan struct{}, 1),
 	}
+	go oms.mux()
+	return &oms
+
 }
 
 // OMS acts as an `Order Management System` to test trading signals and fill orders.
@@ -30,13 +36,17 @@ type OMS struct {
 	// Channels
 	orderChan chan *Order
 	tickChan  chan *Tick
+	portChan  chan *Tick
+	benchChan chan *Tick
 	openChan  chan *Order
 	closing   chan struct{}
 }
 
-// handle is the function that allows for OMS to integrate as a part of the simulation pipeline.
-func (oms *OMS) handle() {
-	for oms.orderChan != nil || oms.openChan != nil { // oms.tickChan != nil
+// mux is the function that allows for OMS to integrate as a part of the simulation pipeline.
+func (oms *OMS) mux() {
+	for oms.orderChan != nil ||
+		oms.openChan != nil ||
+		oms.benchChan != nil { // oms.tickChan != nil
 		select {
 		// case tick, ok := <-oms.tickChan:
 		// 	if !ok {
@@ -45,6 +55,21 @@ func (oms *OMS) handle() {
 		// 		continue
 		// 	}
 		// 	go oms.processTick(tick)
+		case tick, ok := <-oms.benchChan:
+			if !ok {
+				log.Println("OMS's order channel has been closed.")
+				oms.benchChan = nil
+				continue
+			}
+			oms.benchmark.updateSecurity(*tick)
+
+		case tick, ok := <-oms.portChan:
+			if !ok {
+				log.Println("OMS's order channel has been closed.")
+				oms.portChan = nil
+				continue
+			}
+			oms.Port.updatePositions(tick)
 
 		case order, ok := <-oms.orderChan:
 			if !ok {
@@ -101,31 +126,34 @@ func (oms *OMS) closeOrders() {
 	return
 }
 
-func (oms *OMS) processTick(tickCh chan *Tick) {
-	for tick := range tickCh {
+func (oms *OMS) processTick(tick *Tick) {
+	if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
 
-		if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
-			oms.benchmark.updateSecurity(tick)
+		oms.benchChan <- tick
 
-			if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
-				oms.strat.algo.ValidOrder(oms, order) {
+		if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
+			oms.strat.algo.ValidOrder(oms, order) {
 
-				oms.Transact(order)
+			oms.orderChan <- order
+			log.Println("buy order has been sent!")
+		}
+
+		if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
+			var wg sync.WaitGroup
+
+			for _, slicedOrder := range slice {
+				wg.Add(1)
+				go func(openOrder *Order) {
+					if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
+						oms.strat.algo.ValidOrder(oms, order) {
+
+						oms.orderChan <- order
+						log.Println("sell order has been sent")
+					}
+				}(slicedOrder)
+				wg.Wait()
 			}
-
-			if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
-
-				for _, slicedOrder := range slice {
-					go func(openOrder *Order) {
-						if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
-							oms.strat.algo.ValidOrder(oms, order) {
-
-							oms.Transact(order)
-						}
-					}(slicedOrder)
-				}
-				oms.Port.updatePositions(tick)
-			}
+			oms.portChan <- tick
 		}
 	}
 }

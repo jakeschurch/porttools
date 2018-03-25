@@ -22,12 +22,16 @@ type Portfolio struct {
 }
 
 func (port *Portfolio) updatePositions(tick *Tick) {
+	var wg sync.WaitGroup
+
 	for _, pos := range port.Active[tick.Ticker].positions {
 		if pos.LastBid.Date.Before(tick.Timestamp) {
 			break // REVIEW return instead of break?
 		}
+		wg.Add(1)
 		go pos.updateMetrics(tick)
 	}
+	wg.Wait()
 }
 
 // TODO REVIEW: how to add easy accessibility for populating index without having
@@ -42,17 +46,17 @@ func newIndex() *Index {
 // Index could refer to one Security or many.
 type Index struct {
 	Instruments map[string]*Security
-	*sync.Mutex
+	sync.Mutex
 }
 
-func (index *Index) updateSecurity(tick *Tick) (ok bool) {
-	if security, exists := index.Instruments[tick.Ticker]; !exists {
-		index.Lock()
-		index.Instruments[tick.Ticker] = NewSecurity(*tick)
-		index.Unlock()
-	} else {
-		go security.updateMetrics(*tick)
+func (index *Index) updateSecurity(tick Tick) (ok bool) {
+	index.Lock()
+	_, exists := index.Instruments[tick.Ticker]
+	if !exists {
+		index.Instruments[tick.Ticker] = NewSecurity(tick)
 	}
+	index.Instruments[tick.Ticker].updateMetrics(tick)
+	index.Unlock()
 	return true
 }
 
