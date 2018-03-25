@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// TODO:  rebalance routine for entry/exit orders
 func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt OutputFmt) *OMS {
 	return &OMS{
 		Port:       NewPortfolio(cashAmt),
@@ -35,43 +36,40 @@ type OMS struct {
 
 // handle is the function that allows for OMS to integrate as a part of the simulation pipeline.
 func (oms *OMS) handle() {
-	go func() {
-		for oms.orderChan != nil || oms.tickChan != nil || oms.openChan != nil {
-			select {
-			case tick, ok := <-oms.tickChan:
-				if !ok {
-					log.Println("OMS's tick channel has been closed.")
-					oms.tickChan = nil
-					continue
-				}
-				go oms.processTick(tick)
+	for oms.orderChan != nil || oms.openChan != nil { // oms.tickChan != nil
+		select {
+		// case tick, ok := <-oms.tickChan:
+		// 	if !ok {
+		// 		log.Println("OMS's tick channel has been closed.")
+		// 		oms.tickChan = nil
+		// 		continue
+		// 	}
+		// 	go oms.processTick(tick)
 
-			case order, ok := <-oms.orderChan:
-				if !ok {
-					log.Println("OMS's order channel has been closed.")
-					oms.orderChan = nil
-					continue
-				}
-				// REVIEW: use go func?
-				oms.Transact(order)
-
-			case openOrder, ok := <-oms.openChan:
-				if !ok {
-					log.Println("OMS's open order channel has been closed.")
-					oms.openChan = nil
-					continue
-				}
-				oms.openOrders = append(oms.openOrders, openOrder)
-
-				// default:
-				// 	time.Sleep(1 * time.Millisecond)
+		case order, ok := <-oms.orderChan:
+			if !ok {
+				log.Println("OMS's order channel has been closed.")
+				oms.orderChan = nil
+				continue
 			}
+			// REVIEW: use go func?
+			oms.Transact(order)
+
+		case openOrder, ok := <-oms.openChan:
+			if !ok {
+				log.Println("OMS's open order channel has been closed.")
+				oms.openChan = nil
+				continue
+			}
+			oms.openOrders = append(oms.openOrders, openOrder)
+			// default:
+			// 	time.Sleep(1 * time.Millisecond)
 		}
-		// REVIEW TEMP: where should these actually go?
-		close(oms.tickChan)
-		close(oms.orderChan)
-	}()
-	<-oms.closing
+	}
+	// REVIEW TEMP: where should these actually go?
+	close(oms.tickChan)
+	close(oms.orderChan)
+
 }
 func (oms *OMS) closeHandle() {
 	oms.getResults()
@@ -103,27 +101,31 @@ func (oms *OMS) closeOrders() {
 	return
 }
 
-func (oms *OMS) processTick(tick *Tick) {
-	if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
-		oms.benchmark.updateSecurity(tick)
+func (oms *OMS) processTick(tickCh chan *Tick) {
+	for tick := range tickCh {
 
-		if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
-			oms.strat.algo.ValidOrder(oms, order) {
+		if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
+			oms.benchmark.updateSecurity(tick)
 
-			go func() { oms.orderChan <- order }()
-		}
+			if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
+				oms.strat.algo.ValidOrder(oms, order) {
 
-		if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
-
-			for _, slicedOrder := range slice {
-				go func(openOrder *Order) {
-					if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
-						oms.strat.algo.ValidOrder(oms, order) {
-						go func() { oms.orderChan <- order }()
-					}
-				}(slicedOrder)
+				oms.Transact(order)
 			}
-			oms.Port.updatePositions(tick)
+
+			if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
+
+				for _, slicedOrder := range slice {
+					go func(openOrder *Order) {
+						if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
+							oms.strat.algo.ValidOrder(oms, order) {
+
+							oms.Transact(order)
+						}
+					}(slicedOrder)
+				}
+				oms.Port.updatePositions(tick)
+			}
 		}
 	}
 }

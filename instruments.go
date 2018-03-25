@@ -98,12 +98,17 @@ type Tick struct {
 	Timestamp        time.Time
 }
 
-// Amount is a representation of fractional volumes. To get around floating-point erroneous behavior, multiply volume by 100 and cap it as a uint.
-type Amount uint64
+// Amount is a representation of fractional volumes. To get around floating-point erroneous behavior, multiply volume by 100 and cap it as an integer.
+type Amount int64
 
 // FloatAmount converts a float64 value to an amount type. Can be thought of as a constructor for an Amount type.
 func FloatAmount(float float64) Amount {
 	return Amount(float * 100)
+}
+
+// DivideAmt allows Division by integers(Amounts).
+func DivideAmt(top, bottom Amount) Amount {
+	return (top*200 + bottom) / (bottom * 2)
 }
 
 // ToCurrency returns a string representation of a USD amount.

@@ -15,3 +15,7 @@
 .glide/
 
 TODO\.md
+
+\.vscode/
+
+*.swp

@@ -27,28 +27,26 @@ type PrfmLog struct {
 func (prfmLog *PrfmLog) run() {
 	done := make(chan struct{})
 
-	go func() {
-		for prfmLog.orderChan != nil || prfmLog.posChan != nil || prfmLog.startQuit != nil {
-			select {
-			case order, ok := <-prfmLog.orderChan:
-				if !ok {
-					prfmLog.orderChan = nil
-					continue
-				}
-				prfmLog.closedOrders = append(prfmLog.closedOrders, order)
-
-			case pos, ok := <-prfmLog.posChan:
-				if !ok {
-					prfmLog.posChan = nil
-					continue
-				}
-				prfmLog.closedPositions = append(prfmLog.closedPositions, pos)
-
-			case <-prfmLog.startQuit:
-				done <- struct{}{}
+	for prfmLog.orderChan != nil || prfmLog.posChan != nil || prfmLog.startQuit != nil {
+		select {
+		case order, ok := <-prfmLog.orderChan:
+			if !ok {
+				prfmLog.orderChan = nil
+				continue
 			}
+			prfmLog.closedOrders = append(prfmLog.closedOrders, order)
+
+		case pos, ok := <-prfmLog.posChan:
+			if !ok {
+				prfmLog.posChan = nil
+				continue
+			}
+			prfmLog.closedPositions = append(prfmLog.closedPositions, pos)
+
+		case <-prfmLog.startQuit:
+			done <- struct{}{}
 		}
-	}()
+	}
 	<-done
 }
 

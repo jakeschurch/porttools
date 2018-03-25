@@ -1,16 +1,17 @@
 {
     "file": {
-        "fileGlob": "/foo/bar/*",
-        "exampleDate": "Jan 5, 2006",
+        "glob": "/media/jake/128gb/mobileTaq/EQY_US_ALL_NBBO_20170814",
+        "exampleDate": "20060102",
+        "timestampUnit": "ns",
+        "headers": true,
         "delim": "|",
         "columns": {
-            "ticker": 0,
-            "timestamp": 6,
-            "volume": 1,
-            "bid": 2,
-            "bidSize": 3,
-            "ask": 4,
-            "askSize": 5
+            "ticker": 2,
+            "timestamp": 0,
+            "bid": 16,
+            "bidSize": 17,
+            "ask": 20,
+            "askSize": 21
         }
     },
     "backtest": {
@@ -20,14 +21,14 @@
         "Commission": 0.00
     },
     "simulation": {
-        "startDate": "10/20/2015",
-        "endDate": "10/25/2015",
+        "startDate": "20170804",
+        "endDate": "20170805",
         "barRate": 1,
         "costmethod": 0,
         "outputFormat": 0
     },
     "benchmark": {
         "use": true,
-        "update": false,
+        "update": false
     }
 }
