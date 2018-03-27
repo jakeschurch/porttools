@@ -1,7 +1,7 @@
 package porttools
 
 import (
-	"time"
+	"log"
 )
 
 func newPrfmLog(outfmt OutputFmt) *PrfmLog {
@@ -10,9 +10,9 @@ func newPrfmLog(outfmt OutputFmt) *PrfmLog {
 		closedPositions: make([]*Position, 0),
 		results:         make([]*result, 0),
 		// create channels.
-		orderChan: make(chan *Order),
-		posChan:   make(chan *Position),
-		endMux:    make(chan bool, 1),
+		orderChan: make(chan *Order, 6000),
+		posChan:   make(chan *Position, 6000),
+		endMux:    make(chan bool),
 		outFmt:    outfmt,
 	}
 }
@@ -28,8 +28,10 @@ type PrfmLog struct {
 	outFmt          OutputFmt
 }
 
-func (prfmLog *PrfmLog) mux() {
-	done := make(chan struct{})
+func (prfmLog *PrfmLog) mux(endChan chan<- struct{}) {
+	log.Println("Performance Log mux has started")
+
+	// done := make(chan struct{})
 
 	for prfmLog.orderChan != nil || prfmLog.posChan != nil {
 		select {
@@ -48,19 +50,15 @@ func (prfmLog *PrfmLog) mux() {
 			prfmLog.closedPositions = append(prfmLog.closedPositions, pos)
 
 		case <-prfmLog.endMux:
-			done <- struct{}{}
+			log.Println("Going to end prfm mux")
+			endChan <- struct{}{}
+			return
 
-		default:
-			time.Sleep(1 * time.Nanosecond)
 		}
 	}
-	<-done
 }
 
 func (prfmLog *PrfmLog) quit() {
-
-	close(prfmLog.orderChan)
-	close(prfmLog.posChan)
 	prfmLog.endMux <- true
 }
 
@@ -80,8 +78,10 @@ func (oms *OMS) getResults() {
 		filtered := filter(oms.prfmLog.closedPositions, key)
 		oms.prfmLog.results = append(oms.prfmLog.results, oms.createResult(filtered))
 	}
+
+	log.Println("Outputting results: ")
 	oms.outputResults()
-	oms.end <- struct{}{}
+	oms.prfmLog.quit()
 }
 
 func (oms *OMS) createResult(positions []*Position) *result {

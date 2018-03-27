@@ -3,7 +3,6 @@ package porttools
 import (
 	"errors"
 	"log"
-	"sync"
 )
 
 // Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
@@ -25,7 +24,6 @@ const (
 
 // Transact conducts agreement between Position and Order within a portfolio.
 func (oms *OMS) Transact(order *Order) error {
-	var wg sync.WaitGroup
 
 	switch order.Buy {
 	case true: // in lieu of a buy function
@@ -39,33 +37,21 @@ func (oms *OMS) Transact(order *Order) error {
 		posBought := order.toPosition(order.Volume)
 		oms.Port.Active[order.Ticker].Push(posBought)
 
-		wg.Add(1)
-		go func() {
-			oms.openChan <- order
-			wg.Done()
-		}()
+		oms.openChan <- order
 
 	case false: // sell
 		// Check to see if order can be fulfilled
 		// if not, change order volume to max amount it can sell
 		if oms.Port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = cancelled
-
-			wg.Add(1)
-			go func() {
-				oms.prfmLog.orderChan <- order
-				wg.Done()
-			}()
+			oms.prfmLog.orderChan <- order
 			log.Println("Not enough volume to satisfy order")
 			return errors.New("Not enough volume to satisfy order")
 		}
 		order.Status = closed
-		go func() {
-			oms.prfmLog.orderChan <- order
-			oms.sell(*order)
-		}()
+		oms.prfmLog.orderChan <- order
+		oms.sell(*order)
 	}
-	wg.Wait()
 	return nil
 }
 
@@ -95,9 +81,7 @@ func (oms *OMS) sell(order Order) (err error) {
 		closedPos := *posToSell
 		closedPos.Volume = sellVolume
 		closedPos.SellPrice = &datedMetric{order.Bid, order.Datetime}
-		go func() {
-			oms.prfmLog.posChan <- &closedPos
-		}()
+		oms.prfmLog.posChan <- &closedPos
 
 		if posToSell.Volume == 0 {
 			_, popErr := oms.Port.Active[order.Ticker].Pop(oms.strat.costMethod)

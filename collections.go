@@ -22,16 +22,12 @@ type Portfolio struct {
 }
 
 func (port *Portfolio) updatePositions(tick *Tick) {
-	var wg sync.WaitGroup
-
 	for _, pos := range port.Active[tick.Ticker].positions {
 		if pos.LastBid.Date.Before(tick.Timestamp) {
 			break // REVIEW return instead of break?
 		}
-		wg.Add(1)
-		go pos.updateMetrics(tick)
+		pos.updateMetrics(tick)
 	}
-	wg.Wait()
 }
 
 // TODO REVIEW: how to add easy accessibility for populating index without having
@@ -80,7 +76,6 @@ type PositionSlice struct {
 // updates total Volume of all positions in slice.
 func (slice *PositionSlice) Push(pos *Position) {
 	slice.Lock()
-	log.Println(pos.String())
 	slice.totalVolume += pos.Volume
 	slice.positions = append(slice.positions, pos)
 	slice.Unlock()

@@ -3,6 +3,7 @@ package porttools
 import (
 	"encoding/csv"
 	"errors"
+	"fmt"
 	// "fmt"
 	"io"
 	"log"
@@ -41,9 +42,8 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 		),
 		inputChans: make([]*inputChan, 0),
 		// create channels.
-		closing:      make(chan struct{}),
-		processTicks: make(chan struct{}),
-		waitOnInput:  make(chan struct{}),
+		end:         make(chan struct{}),
+		waitOnInput: make(chan struct{}),
 	}
 	return sim, nil
 }
@@ -65,7 +65,8 @@ func (sim *Simulation) Run() {
 	if sim.oms.strat.algo == nil {
 		log.Fatal("Algorithm needs to be implemented by end-user")
 	}
-	go sim.oms.prfmLog.mux()
+	go sim.oms.mux()
+	go sim.oms.prfmLog.mux(sim.end)
 
 	log.Println("loading input...")
 	go sim.loadInput()
@@ -119,34 +120,38 @@ func (sim *Simulation) loadInput() error {
 	inputChan := newInputChan()
 
 	go func() {
-		inputDone := make(chan struct{})
+		var wg sync.WaitGroup
+		// inputDone := make(chan struct{})
 
-		for inputChan.recordC != nil && inputChan.tickC != nil {
+		for inputChan.recordC != nil || inputChan.tickC != nil {
 			select {
 			case record, ok := <-inputChan.recordC:
 				if !ok {
-					inputChan.recordC = nil
 					close(inputChan.tickC)
-				} else if len(record) >= 6 {
-					sim.prepRecord(inputChan.tickC, record, filedate, simCfg)
+					inputChan.recordC = nil
+					log.Println("Tick channel has been closed")
+					break
 				}
+				sim.prepRecord(inputChan.tickC, record, filedate, simCfg)
 
 			case tick, ok := <-inputChan.tickC:
 				if !ok {
+					log.Println("Sending inputDone signal")
+					// inputDone <- struct{}{}
 					inputChan.tickC = nil
-					close(sim.oms.benchChan)
-					close(sim.oms.portChan)
-					close(sim.oms.openChan)
-
-					inputDone <- struct{}{}
+					continue
 				}
-				sim.oms.processTick(tick)
-
-			default:
-				time.Sleep(1 * time.Nanosecond)
+				wg.Add(1)
+				go func() {
+					sim.oms.tickChan <- tick
+					wg.Done()
+				}()
+				// default:
+				// 	time.Sleep(time.Millisecond)
 			}
 		}
-		<-inputDone
+		wg.Wait()
+		log.Println("input go func quit")
 		sim.waitOnInput <- struct{}{}
 	}()
 
@@ -179,34 +184,40 @@ func (sim *Simulation) loadInput() error {
 		}
 		filedate = lastDate
 
-		done := make(chan struct{})
-		go func(done chan struct{}) {
-			ticksRead := 0
-			for {
-				record, recordErr := r.Read()
-				if recordErr != nil {
-					if recordErr == io.EOF {
-						break
-					} else {
-						log.Println("Error reading record from file")
-						done <- struct{}{}
-					}
+		var recordWG sync.WaitGroup
+		ticksRead := 0
+		for {
+			record, recordErr := r.Read()
+			if recordErr != nil {
+				if recordErr == io.EOF {
+					break
+				} else {
+					log.Fatal("Error reading record from file")
 				}
-				inputChan.recordC <- record
-				// fmt.Printf("\r%d ticks read", ticksRead)
-				ticksRead++
 			}
-			log.Println("all records have been read")
-			done <- struct{}{}
-		}(done)
-		<-done
+			recordWG.Add(1)
+			go func() {
+				inputChan.recordC <- record
+				recordWG.Done()
+			}()
+			fmt.Printf("\r%d ticks read", ticksRead)
+			ticksRead++
+		}
+		recordWG.Wait()
+
+		log.Println("all records have been read")
 		close(inputChan.recordC)
+		log.Println("record chan has been closed")
 	}
 	<-sim.waitOnInput
+	log.Println("Done waiting on input")
+	close(sim.oms.benchChan)
+	close(sim.oms.portChan)
+	sim.oms.endMux <- struct{}{}
+
 	return nil
 }
 
-// TODO: add logging statements for if things get `hairy`
 func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate time.Time, simCfg Config) {
 	var loadErr, parseErr error
 
@@ -257,7 +268,13 @@ func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate 
 		log.Println(loadErr)
 		log.Fatal("record could not be loaded")
 	}
-	outChan <- tick
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		outChan <- tick
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 // TODO:
@@ -276,13 +293,13 @@ func (sim *Simulation) simulateData(tick *Tick) {
 
 // close sends a signal to close all channels and exit current processes
 func (sim *Simulation) close() {
-	sim.closing <- struct{}{}
+	sim.end <- struct{}{}
 }
 
 func newInputChan() *inputChan {
 	return &inputChan{
-		recordC: make(chan []string, 1024),
-		tickC:   make(chan *Tick, 1024),
+		recordC: make(chan []string, 8000),
+		tickC:   make(chan *Tick, 4000),
 	}
 }
 

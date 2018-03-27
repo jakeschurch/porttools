@@ -71,19 +71,21 @@ func (prfmLog *PrfmLog) toCSV() (ok bool) {
 		output = append(output, result.ToSlice())
 	}
 
-	outFile, fileErr := os.Create("~/Desktop/simOutput.csv")
+	outFile, fileErr := os.Create("simOutput.csv")
 	if fileErr != nil {
-		log.Fatal("Cannot create file", fileErr)
+		log.Fatal("Cannot create file: ", fileErr)
 	}
 
 	// TEMP: allow filename as method argument
 	w := csv.NewWriter(outFile)
 
 	for _, row := range output {
-		if err := w.Write(row); err != nil {
-			log.Fatalln("Could not write row")
-		}
+		log.Println(row)
+		w.Write(row)
 	}
+	w.Flush()
+	outFile.Close()
+
 	return true
 }
 

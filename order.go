@@ -16,15 +16,14 @@ func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt Out
 		strat:      newStrategy(toIgnore, costMethod),
 		prfmLog:    newPrfmLog(outFmt),
 		// create channels
-		tickChan:  make(chan *Tick),
+		tickChan:  make(chan *Tick, 6000),
 		orderChan: make(chan *Order, 1024),
-		benchChan: make(chan *Tick, 1024),
-		portChan:  make(chan *Tick, 1024),
-		endMux:    make(chan struct{}, 1),
+		benchChan: make(chan *Tick, 6000),
+		openChan:  make(chan *Order, 1024),
+		portChan:  make(chan *Tick, 6000),
+		endMux:    make(chan struct{}),
 	}
-	go oms.mux()
 	return &oms
-
 }
 
 // OMS acts as an `Order Management System` to test trading signals and fill orders.
@@ -46,15 +45,16 @@ type OMS struct {
 
 // mux is the function that allows for OMS to integrate as a part of the simulation pipeline.
 func (oms *OMS) mux() {
-	for oms.orderChan != nil || oms.openChan != nil || oms.benchChan != nil { // oms.tickChan != nil
+	for oms.orderChan != nil || oms.openChan != nil || oms.benchChan != nil || oms.tickChan != nil {
 		select {
-		// case tick, ok := <-oms.tickChan:
-		// 	if !ok {
-		// 		log.Println("OMS tick channel has been closed.")
-		// 		oms.tickChan = nil
-		// 		continue
-		// 	}
-		// 	go oms.processTick(tick)
+		case tick, ok := <-oms.tickChan:
+			if !ok {
+				log.Println("OMS tick channel has been closed.")
+				oms.tickChan = nil
+				continue
+			}
+			oms.processTick(tick)
+
 		case tick, ok := <-oms.benchChan:
 			if !ok {
 				log.Println("OMS benchmark channel has been closed.")
@@ -75,11 +75,12 @@ func (oms *OMS) mux() {
 
 		case order, ok := <-oms.orderChan:
 			if !ok {
-				// log.Println("OMS order channel has been closed.")
+				log.Println("OMS order channel has been closed.")
 				oms.orderChan = nil
 				oms.getResults()
+				continue
 			}
-			go oms.Transact(order)
+			oms.Transact(order)
 
 		case openOrder, ok := <-oms.openChan:
 			if !ok {
@@ -90,15 +91,17 @@ func (oms *OMS) mux() {
 			oms.openOrders = append(oms.openOrders, openOrder)
 
 		case <-oms.endMux:
+			log.Println("Closing all orders...")
 			oms.closeOrders()
 			// break
 
-		default:
-			time.Sleep(1 * time.Nanosecond)
+			// default:
+			// 	time.Sleep(1 * time.Nanosecond)
 		}
 	}
-
+	log.Println("OMS mux quit")
 }
+
 func (oms *OMS) closeHandle() {
 	oms.getResults()
 
@@ -106,6 +109,9 @@ func (oms *OMS) closeHandle() {
 }
 
 func (oms *OMS) closeOrders() {
+	log.Println("Closing all open orders")
+
+	log.Println("Length of openorders: ", len(oms.openOrders))
 	for _, openOrder := range oms.openOrders {
 		newOrder := &Order{
 			Buy:      false,
@@ -114,59 +120,38 @@ func (oms *OMS) closeOrders() {
 			Ticker:   openOrder.Ticker,
 			Volume:   openOrder.Volume,
 			Bid:      oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Amount,
+			Ask:      oms.Port.Active[openOrder.Ticker].positions[0].LastAsk.Amount,
 			Datetime: oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Date,
 		}
-		oms.orderChan <- openOrder
+		oms.Transact(newOrder)
 	}
 	close(oms.orderChan)
 }
 
 func (oms *OMS) processTick(tick *Tick) {
 	if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
-		var wg sync.WaitGroup
-
-		wg.Add(1)
 		// Send tick to benchmark chan
-		go func() {
-			oms.benchChan <- tick
-			wg.Done()
-		}()
+		oms.benchChan <- tick
 
 		// Check to see if a buy order can be submitted
 		if order, signal := oms.strat.algo.EntryLogic(*tick); signal {
 			if oms.strat.algo.ValidOrder(oms.Port, order) {
-
-				wg.Add(1)
-				go func() {
-					oms.orderChan <- order
-					wg.Done()
-				}()
-				log.Println("buy order has been sent!")
+				oms.orderChan <- order
 			}
 		}
 
 		if openOrders, orderErr := oms.existsInOrders(tick.Ticker); orderErr == nil {
 			// update Portfolio position
-			wg.Add(1)
-			go func() {
-				oms.portChan <- tick
-				wg.Done()
-			}()
+			oms.portChan <- tick
 
-			for _, order := range openOrders {
-				wg.Add(1)
-				go func(openOrder *Order) {
-					if order, signal := oms.strat.algo.ExitLogic(*tick, *openOrder); signal {
-						if oms.strat.algo.ValidOrder(oms.Port, order) {
-							oms.orderChan <- order
-							log.Println("sell order has been sent")
-						}
+			for _, openOrder := range openOrders {
+				if order, signal := oms.strat.algo.ExitLogic(*tick, *openOrder); signal {
+					if oms.strat.algo.ValidOrder(oms.Port, order) {
+						oms.orderChan <- order
 					}
-					wg.Done()
-				}(order)
+				}
 			}
 		}
-		wg.Wait()
 	}
 }
 
@@ -184,7 +169,7 @@ func (oms *OMS) existsInOrders(ticker string) ([]*Order, error) {
 	return orders, nil
 }
 
-// NewMarketOrder returns a buy order that will execute at nearest price.
+// NewMarketOrder returns a new order that will execute at nearest price.
 func NewMarketOrder(buy bool, ticker string, bid, ask, volume Amount, datetime time.Time) *Order {
 	return &Order{
 		Buy:      buy,
