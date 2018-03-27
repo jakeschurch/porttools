@@ -103,13 +103,13 @@ type result struct {
 	BuyValue Amount `json:"buyValue"`
 	EndValue Amount `json:"endValue"`
 
-	AvgBid Amount      `json:"avgBid"`
-	MaxBid datedMetric `json:"maxBid"`
-	MinBid datedMetric `json:"minBid"`
+	AvgBid Amount       `json:"avgBid"`
+	MaxBid *datedMetric `json:"maxBid"`
+	MinBid *datedMetric `json:"minBid"`
 
-	AvgAsk Amount      `json:"avgAsk"`
-	MaxAsk datedMetric `json:"maxAsk"`
-	MinAsk datedMetric `json:"minAsk"`
+	AvgAsk Amount       `json:"avgAsk"`
+	MaxAsk *datedMetric `json:"maxAsk"`
+	MinAsk *datedMetric `json:"minAsk"`
 	// TODO REVIEW: avgReturn
 	PctReturn Amount `json:"pctReturn"`
 	Alpha     Amount `json:"alpha"`

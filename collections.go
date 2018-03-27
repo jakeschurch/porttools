@@ -16,9 +16,9 @@ func NewPortfolio(cashAmt Amount) *Portfolio {
 
 // Portfolio struct refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	Active map[string]*PositionSlice `json:"active"`
+	sync.RWMutex
 	Cash   Amount                    `json:"cash"`
-	*sync.RWMutex
+	Active map[string]*PositionSlice `json:"active"`
 }
 
 func (port *Portfolio) updatePositions(tick *Tick) {
@@ -51,11 +51,11 @@ type Index struct {
 
 func (index *Index) updateSecurity(tick Tick) (ok bool) {
 	index.Lock()
-	_, exists := index.Instruments[tick.Ticker]
-	if !exists {
+	if security, exists := index.Instruments[tick.Ticker]; !exists {
 		index.Instruments[tick.Ticker] = NewSecurity(tick)
+	} else {
+		security.updateMetrics(tick)
 	}
-	index.Instruments[tick.Ticker].updateMetrics(tick)
 	index.Unlock()
 	return true
 }
@@ -70,24 +70,19 @@ func newPositionSlice() *PositionSlice {
 
 // PositionSlice is a slice that holds pointer values to Position type variables
 type PositionSlice struct {
+	sync.Mutex  // COMBAK: may need this later...or not.
 	positions   []*Position
 	len         int
 	totalVolume Amount
-	*sync.Mutex // COMBAK: may need this later...or not.
 }
 
 // Push adds position to position slice,
 // updates total Volume of all positions in slice.
 func (slice *PositionSlice) Push(pos *Position) {
 	slice.Lock()
-	slice.len++
-
-	if slice.len-1 == 0 {
-		slice.positions[0] = pos
-		slice.Unlock()
-		return
-	}
-	slice.positions[slice.len] = pos
+	log.Println(pos.String())
+	slice.totalVolume += pos.Volume
+	slice.positions = append(slice.positions, pos)
 	slice.Unlock()
 	return
 }
@@ -97,7 +92,7 @@ func (slice *PositionSlice) Push(pos *Position) {
 // Otherwise if lifo is passed as costmethod, the position at the last index will be popped.
 func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error) {
 	if slice.len == 0 {
-		log.Printf("%s position slice has underflowed.\n", pos.Ticker)
+		log.Fatalf("%s position slice has underflowed.\n", pos.Ticker)
 		return nil, errors.New("Buffer underflow")
 	}
 	slice.Lock()
@@ -105,12 +100,13 @@ func (slice *PositionSlice) Pop(costMethod CostMethod) (pos *Position, err error
 	switch costMethod {
 	case fifo:
 		pos = slice.positions[0]
-		slice.positions = slice.positions[0:]
+		slice.positions = slice.positions[1:]
 	case lifo:
 		pos = slice.positions[slice.len]
-		slice.positions = slice.positions[:slice.len]
+		slice.positions = slice.positions[:slice.len-1]
 	}
 	slice.len--
+	slice.totalVolume -= pos.Volume
 	slice.Unlock()
 	return
 }

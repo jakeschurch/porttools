@@ -1,5 +1,9 @@
 package porttools
 
+import (
+	"time"
+)
+
 func newPrfmLog(outfmt OutputFmt) *PrfmLog {
 	return &PrfmLog{
 		closedOrders:    make([]*Order, 0),
@@ -8,7 +12,7 @@ func newPrfmLog(outfmt OutputFmt) *PrfmLog {
 		// create channels.
 		orderChan: make(chan *Order),
 		posChan:   make(chan *Position),
-		startQuit: make(chan bool, 1),
+		endMux:    make(chan bool, 1),
 		outFmt:    outfmt,
 	}
 }
@@ -20,14 +24,14 @@ type PrfmLog struct {
 	results         []*result
 	orderChan       chan *Order
 	posChan         chan *Position
-	startQuit       chan bool // TODO: comon, you can do better than that XD
+	endMux          chan bool
 	outFmt          OutputFmt
 }
 
-func (prfmLog *PrfmLog) run() {
+func (prfmLog *PrfmLog) mux() {
 	done := make(chan struct{})
 
-	for prfmLog.orderChan != nil || prfmLog.posChan != nil || prfmLog.startQuit != nil {
+	for prfmLog.orderChan != nil || prfmLog.posChan != nil {
 		select {
 		case order, ok := <-prfmLog.orderChan:
 			if !ok {
@@ -43,22 +47,26 @@ func (prfmLog *PrfmLog) run() {
 			}
 			prfmLog.closedPositions = append(prfmLog.closedPositions, pos)
 
-		case <-prfmLog.startQuit:
+		case <-prfmLog.endMux:
 			done <- struct{}{}
+
+		default:
+			time.Sleep(1 * time.Nanosecond)
 		}
 	}
 	<-done
 }
 
 func (prfmLog *PrfmLog) quit() {
+
 	close(prfmLog.orderChan)
 	close(prfmLog.posChan)
-	prfmLog.startQuit <- true
+	prfmLog.endMux <- true
 }
 
 func (oms *OMS) getResults() {
 	// sort orders by ticker for easier access
-	selectionSort(oms.prfmLog.closedPositions)
+	// selectionSort(oms.prfmLog.closedPositions)
 
 	// create slice of all position keys
 	positionKeys := make([]string, 0)
@@ -72,6 +80,8 @@ func (oms *OMS) getResults() {
 		filtered := filter(oms.prfmLog.closedPositions, key)
 		oms.prfmLog.results = append(oms.prfmLog.results, oms.createResult(filtered))
 	}
+	oms.outputResults()
+	oms.end <- struct{}{}
 }
 
 func (oms *OMS) createResult(positions []*Position) *result {
@@ -93,7 +103,6 @@ func (oms *OMS) createResult(positions []*Position) *result {
 	alpha := Amount(result.PctReturn) - (security.LastAsk.Amount-security.BuyPrice.Amount)/security.BuyPrice.Amount
 	result.Alpha = alpha
 	return result
-
 }
 
 // - max-drawdown

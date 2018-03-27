@@ -23,7 +23,6 @@ func loadConfig(filename string) (*Config, error) {
 		log.Fatal("Could not read config file")
 		return nil, decodeErr
 	}
-	log.Println(config.File.Glob)
 	return config, nil
 }
 
@@ -39,9 +38,9 @@ type Config struct {
 		Columns struct {
 			Ticker    int `json:"ticker"`
 			Timestamp int `json:"timestamp"`
-			Bid       int `json:"bidPrice"`
+			Bid       int `json:"bid"`
 			BidSize   int `json:"bidSize"`
-			Ask       int `json:"askPrice"`
+			Ask       int `json:"ask"`
 			AskSize   int `json:"askSize"`
 		} `json:"columns"`
 	} `json:"file"`

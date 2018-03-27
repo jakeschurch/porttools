@@ -1,6 +1,7 @@
 package porttools
 
 import (
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -15,11 +16,11 @@ func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt Out
 		strat:      newStrategy(toIgnore, costMethod),
 		prfmLog:    newPrfmLog(outFmt),
 		// create channels
+		tickChan:  make(chan *Tick),
 		orderChan: make(chan *Order, 1024),
 		benchChan: make(chan *Tick, 1024),
 		portChan:  make(chan *Tick, 1024),
-		tickChan:  make(chan *Tick),
-		closing:   make(chan struct{}, 1),
+		endMux:    make(chan struct{}, 1),
 	}
 	go oms.mux()
 	return &oms
@@ -28,137 +29,148 @@ func newOMS(cashAmt Amount, costMethod CostMethod, toIgnore []string, outFmt Out
 
 // OMS acts as an `Order Management System` to test trading signals and fill orders.
 type OMS struct {
+	sync.RWMutex
 	Port       *Portfolio
 	benchmark  *Index
 	openOrders []*Order
-	strat      *strategy
+	strat      strategy
 	prfmLog    *PrfmLog
 	// Channels
-	orderChan chan *Order
 	tickChan  chan *Tick
+	orderChan chan *Order
 	portChan  chan *Tick
 	benchChan chan *Tick
 	openChan  chan *Order
-	closing   chan struct{}
+	endMux    chan struct{}
 }
 
 // mux is the function that allows for OMS to integrate as a part of the simulation pipeline.
 func (oms *OMS) mux() {
-	for oms.orderChan != nil ||
-		oms.openChan != nil ||
-		oms.benchChan != nil { // oms.tickChan != nil
+	for oms.orderChan != nil || oms.openChan != nil || oms.benchChan != nil { // oms.tickChan != nil
 		select {
 		// case tick, ok := <-oms.tickChan:
 		// 	if !ok {
-		// 		log.Println("OMS's tick channel has been closed.")
+		// 		log.Println("OMS tick channel has been closed.")
 		// 		oms.tickChan = nil
 		// 		continue
 		// 	}
 		// 	go oms.processTick(tick)
 		case tick, ok := <-oms.benchChan:
 			if !ok {
-				log.Println("OMS's order channel has been closed.")
+				log.Println("OMS benchmark channel has been closed.")
 				oms.benchChan = nil
 				continue
 			}
+			// log.Println("updating benchmark...")
 			oms.benchmark.updateSecurity(*tick)
 
 		case tick, ok := <-oms.portChan:
 			if !ok {
-				log.Println("OMS's order channel has been closed.")
+				log.Println("OMS portfolio channel has been closed.")
 				oms.portChan = nil
 				continue
 			}
+			// log.Println("updating position...")
 			oms.Port.updatePositions(tick)
 
 		case order, ok := <-oms.orderChan:
 			if !ok {
-				log.Println("OMS's order channel has been closed.")
+				// log.Println("OMS order channel has been closed.")
 				oms.orderChan = nil
-				continue
+				oms.getResults()
 			}
-			// REVIEW: use go func?
-			oms.Transact(order)
+			go oms.Transact(order)
 
 		case openOrder, ok := <-oms.openChan:
 			if !ok {
-				log.Println("OMS's open order channel has been closed.")
+				log.Println("OMS open order channel has been closed.")
 				oms.openChan = nil
 				continue
 			}
 			oms.openOrders = append(oms.openOrders, openOrder)
-			// default:
-			// 	time.Sleep(1 * time.Millisecond)
+
+		case <-oms.endMux:
+			oms.closeOrders()
+			// break
+
+		default:
+			time.Sleep(1 * time.Nanosecond)
 		}
 	}
-	// REVIEW TEMP: where should these actually go?
-	close(oms.tickChan)
-	close(oms.orderChan)
 
 }
 func (oms *OMS) closeHandle() {
 	oms.getResults()
 
 	oms.prfmLog.quit()
-	oms.closing <- struct{}{}
 }
 
 func (oms *OMS) closeOrders() {
-	if len(oms.openOrders) == 0 {
-		return
+	for _, openOrder := range oms.openOrders {
+		newOrder := &Order{
+			Buy:      false,
+			Status:   open,
+			Logic:    market,
+			Ticker:   openOrder.Ticker,
+			Volume:   openOrder.Volume,
+			Bid:      oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Amount,
+			Datetime: oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Date,
+		}
+		oms.orderChan <- openOrder
 	}
-	openOrder := oms.openOrders[0]
-	newOrder := &Order{
-		Buy:      false,
-		Status:   open,
-		Logic:    market,
-		Ticker:   openOrder.Ticker,
-		Volume:   openOrder.Volume,
-		Price:    oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Amount,
-		Datetime: oms.Port.Active[openOrder.Ticker].positions[0].LastBid.Date,
-	}
-	go func(order *Order) { oms.orderChan <- order }(newOrder)
-
-	// reduce size of openOrders slice since the 0th element has been closed.
-	oms.openOrders = oms.openOrders[0:]
-	oms.closeOrders()
-
-	return
+	close(oms.orderChan)
 }
 
 func (oms *OMS) processTick(tick *Tick) {
 	if _, exists := oms.strat.ignore[tick.Ticker]; !exists {
+		var wg sync.WaitGroup
 
-		oms.benchChan <- tick
+		wg.Add(1)
+		// Send tick to benchmark chan
+		go func() {
+			oms.benchChan <- tick
+			wg.Done()
+		}()
 
-		if order, signal := oms.strat.algo.EntryLogic(tick); signal &&
-			oms.strat.algo.ValidOrder(oms, order) {
+		// Check to see if a buy order can be submitted
+		if order, signal := oms.strat.algo.EntryLogic(*tick); signal {
+			if oms.strat.algo.ValidOrder(oms.Port, order) {
 
-			oms.orderChan <- order
-			log.Println("buy order has been sent!")
+				wg.Add(1)
+				go func() {
+					oms.orderChan <- order
+					wg.Done()
+				}()
+				log.Println("buy order has been sent!")
+			}
 		}
 
-		if slice := oms.existsInOrders(tick.Ticker); len(slice) > 0 {
-			var wg sync.WaitGroup
+		if openOrders, orderErr := oms.existsInOrders(tick.Ticker); orderErr == nil {
+			// update Portfolio position
+			wg.Add(1)
+			go func() {
+				oms.portChan <- tick
+				wg.Done()
+			}()
 
-			for _, slicedOrder := range slice {
+			for _, order := range openOrders {
 				wg.Add(1)
 				go func(openOrder *Order) {
-					if order, signal := oms.strat.algo.ExitLogic(tick, openOrder); signal &&
-						oms.strat.algo.ValidOrder(oms, order) {
-
-						oms.orderChan <- order
-						log.Println("sell order has been sent")
+					if order, signal := oms.strat.algo.ExitLogic(*tick, *openOrder); signal {
+						if oms.strat.algo.ValidOrder(oms.Port, order) {
+							oms.orderChan <- order
+							log.Println("sell order has been sent")
+						}
 					}
-				}(slicedOrder)
-				wg.Wait()
+					wg.Done()
+				}(order)
 			}
-			oms.portChan <- tick
 		}
+		wg.Wait()
 	}
 }
 
-func (oms *OMS) existsInOrders(ticker string) []*Order {
+func (oms *OMS) existsInOrders(ticker string) ([]*Order, error) {
 	orders := make([]*Order, 0)
 
 	for _, order := range oms.openOrders {
@@ -166,18 +178,21 @@ func (oms *OMS) existsInOrders(ticker string) []*Order {
 			orders = append(orders, order)
 		}
 	}
-	return orders
+	if len(orders) == 0 {
+		return nil, errors.New("no open orders with ticker name exist")
+	}
+	return orders, nil
 }
 
 // NewMarketOrder returns a buy order that will execute at nearest price.
-// TEMP(NewMarketOrder) TODO
-func NewMarketOrder(buy bool, ticker string, price, volume Amount, datetime time.Time) *Order {
+func NewMarketOrder(buy bool, ticker string, bid, ask, volume Amount, datetime time.Time) *Order {
 	return &Order{
 		Buy:      buy,
 		Status:   open,
 		Logic:    market,
 		Ticker:   ticker,
-		Price:    price,
+		Bid:      bid,
+		Ask:      ask,
 		Volume:   volume,
 		Datetime: datetime,
 	}
@@ -192,17 +207,23 @@ type Order struct {
 	Logic  TradeLogic
 	Ticker string
 	// NOTE: turn price + datetime into LastBid & LastAsk
-	Price    Amount
-	Volume   Amount
-	Datetime time.Time
+	Bid, Ask, Volume Amount
+	Datetime         time.Time
 }
 
 func (order *Order) toPosition(volume Amount) *Position {
-	// TEMP: when have time - flush this out fully
+	bid := &datedMetric{Amount: order.Bid, Date: order.Datetime}
+	ask := &datedMetric{Amount: order.Ask, Date: order.Datetime}
+
 	return &Position{
-		Ticker: order.Ticker, Volume: volume,
-		BuyPrice: datedMetric{order.Price, order.Datetime},
-		NumTicks: 0,
+		Ticker:   order.Ticker,
+		Volume:   volume,
+		NumTicks: 1,
+		LastBid:  bid, LastAsk: ask,
+		AvgBid: bid.Amount, AvgAsk: ask.Amount,
+		MaxBid: bid, MaxAsk: ask,
+		MinBid: bid, MinAsk: ask,
+		BuyPrice: ask,
 	}
 }
 

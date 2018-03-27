@@ -3,14 +3,15 @@ package porttools
 import (
 	"errors"
 	"log"
+	"sync"
 )
 
 // Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
 type Algorithm interface {
 	// REVIEW: may want to move this to pipeline || simulation.
-	EntryLogic(*Tick) (*Order, bool)
-	ExitLogic(*Tick, *Order) (*Order, bool)
-	ValidOrder(*OMS, *Order) bool
+	EntryLogic(Tick) (*Order, bool)
+	ExitLogic(Tick, Order) (*Order, bool)
+	ValidOrder(*Portfolio, *Order) bool
 }
 
 // CostMethod regards the type of accounting management rule
@@ -24,20 +25,10 @@ const (
 
 // Transact conducts agreement between Position and Order within a portfolio.
 func (oms *OMS) Transact(order *Order) error {
-	log.Println("Transacting order...")
+	var wg sync.WaitGroup
+
 	switch order.Buy {
 	case true: // in lieu of a buy function
-		ok := func() bool { // check to see if order can be fulfilled.
-			oms.Port.RLock()
-			ok := (order.Volume * order.Price) <= oms.Port.Cash
-			oms.Port.RUnlock()
-			return ok
-		}()
-		if !ok { // if not ok, cancel order and return error.
-			order.Status = cancelled
-			go func() { oms.prfmLog.orderChan <- order }()
-			return errors.New("Not enough cash to fulfil order")
-		}
 		if _, exists := oms.Port.Active[order.Ticker]; !exists {
 			oms.Port.Lock()
 			oms.Port.Active[order.Ticker] = newPositionSlice()
@@ -47,16 +38,25 @@ func (oms *OMS) Transact(order *Order) error {
 		// Create new Position and add it to according position slice.
 		posBought := order.toPosition(order.Volume)
 		oms.Port.Active[order.Ticker].Push(posBought)
-		oms.Port.Active[order.Ticker].totalVolume += posBought.Volume // Update position slice volume.
-		go func() { oms.openChan <- order }()
+
+		wg.Add(1)
+		go func() {
+			oms.openChan <- order
+			wg.Done()
+		}()
 
 	case false: // sell
 		// Check to see if order can be fulfilled
-		// if not, cancel order and return error
+		// if not, change order volume to max amount it can sell
 		if oms.Port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = cancelled
-			go func() { oms.prfmLog.orderChan <- order }()
 
+			wg.Add(1)
+			go func() {
+				oms.prfmLog.orderChan <- order
+				wg.Done()
+			}()
+			log.Println("Not enough volume to satisfy order")
 			return errors.New("Not enough volume to satisfy order")
 		}
 		order.Status = closed
@@ -65,6 +65,7 @@ func (oms *OMS) Transact(order *Order) error {
 			oms.sell(*order)
 		}()
 	}
+	wg.Wait()
 	return nil
 }
 
@@ -73,7 +74,7 @@ func (oms *OMS) Transact(order *Order) error {
 func (oms *OMS) sell(order Order) (err error) {
 	// Update Cash Amount.
 	oms.Port.Lock()
-	oms.Port.Cash += order.Volume * order.Price
+	oms.Port.Cash += order.Volume * order.Ask
 	oms.Port.Unlock()
 
 	for order.Volume > 0 {
@@ -93,7 +94,7 @@ func (oms *OMS) sell(order Order) (err error) {
 
 		closedPos := *posToSell
 		closedPos.Volume = sellVolume
-		closedPos.SellPrice = datedMetric{order.Price, order.Datetime}
+		closedPos.SellPrice = &datedMetric{order.Bid, order.Datetime}
 		go func() {
 			oms.prfmLog.posChan <- &closedPos
 		}()

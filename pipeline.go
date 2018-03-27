@@ -1,12 +1,12 @@
 package porttools
 
 // newStrategy creates a new Strategy instance used in the backtesting process.
-func newStrategy(toIgnore []string, costMethod CostMethod) *strategy {
+func newStrategy(toIgnore []string, costMethod CostMethod) strategy {
 	toIgnoreMap := make(map[string]bool)
 	for _, ticker := range toIgnore {
 		toIgnoreMap[ticker] = true
 	}
-	strategy := &strategy{
+	strategy := strategy{
 		ignore:     toIgnoreMap,
 		costMethod: costMethod,
 	}

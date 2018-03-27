@@ -3,6 +3,7 @@ package porttools
 import (
 	"encoding/csv"
 	"errors"
+	// "fmt"
 	"io"
 	"log"
 	"os"
@@ -53,10 +54,9 @@ type Simulation struct {
 	oms    *OMS
 	config *Config
 	// Channels
-	inputChans   []*inputChan
-	closing      chan struct{}
-	processTicks chan struct{}
-	waitOnInput  chan struct{}
+	inputChans  []*inputChan
+	end         chan struct{}
+	waitOnInput chan struct{}
 }
 
 // Run acts as the simulation's primary pipeline function; directing everything to where it needs to go.
@@ -65,7 +65,7 @@ func (sim *Simulation) Run() {
 	if sim.oms.strat.algo == nil {
 		log.Fatal("Algorithm needs to be implemented by end-user")
 	}
-	go sim.oms.prfmLog.run()
+	go sim.oms.prfmLog.mux()
 
 	log.Println("loading input...")
 	go sim.loadInput()
@@ -99,7 +99,7 @@ func (sim *Simulation) Run() {
 	// 		}
 	// 	}
 	// }()
-	<-sim.closing
+	<-sim.end
 }
 
 func (sim *Simulation) loadInput() error {
@@ -119,15 +119,35 @@ func (sim *Simulation) loadInput() error {
 	inputChan := newInputChan()
 
 	go func() {
-		for {
-			select {
-			case record := <-inputChan.recordC:
-				sim.prepRecord(inputChan.tickC, record, filedate, simCfg)
+		inputDone := make(chan struct{})
 
-			case tick := <-inputChan.tickC:
+		for inputChan.recordC != nil && inputChan.tickC != nil {
+			select {
+			case record, ok := <-inputChan.recordC:
+				if !ok {
+					inputChan.recordC = nil
+					close(inputChan.tickC)
+				} else if len(record) >= 6 {
+					sim.prepRecord(inputChan.tickC, record, filedate, simCfg)
+				}
+
+			case tick, ok := <-inputChan.tickC:
+				if !ok {
+					inputChan.tickC = nil
+					close(sim.oms.benchChan)
+					close(sim.oms.portChan)
+					close(sim.oms.openChan)
+
+					inputDone <- struct{}{}
+				}
 				sim.oms.processTick(tick)
+
+			default:
+				time.Sleep(1 * time.Nanosecond)
 			}
 		}
+		<-inputDone
+		sim.waitOnInput <- struct{}{}
 	}()
 
 	for _, file := range fileGlob {
@@ -161,38 +181,42 @@ func (sim *Simulation) loadInput() error {
 
 		done := make(chan struct{})
 		go func(done chan struct{}) {
-
+			ticksRead := 0
 			for {
 				record, recordErr := r.Read()
 				if recordErr != nil {
 					if recordErr == io.EOF {
 						break
 					} else {
-						log.Fatal("Error reading record from file")
+						log.Println("Error reading record from file")
+						done <- struct{}{}
 					}
 				}
 				inputChan.recordC <- record
+				// fmt.Printf("\r%d ticks read", ticksRead)
+				ticksRead++
 			}
-			close(inputChan.recordC)
+			log.Println("all records have been read")
 			done <- struct{}{}
 		}(done)
 		<-done
+		close(inputChan.recordC)
 	}
-
-	go func() { sim.processTicks <- struct{}{} }()
-
 	<-sim.waitOnInput
 	return nil
 }
 
 // TODO: add logging statements for if things get `hairy`
 func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate time.Time, simCfg Config) {
-	var loadErr error
+	var loadErr, parseErr error
 
 	tick := new(Tick)
 	tick.Ticker = record[simCfg.File.Columns.Ticker]
 
 	bid, bidErr := strconv.ParseFloat(record[simCfg.File.Columns.Bid], 64)
+	if bid == 0 {
+		return
+	}
 	if bidErr != nil {
 		loadErr = errors.New("Bid Price could not be parsed")
 	}
@@ -205,6 +229,9 @@ func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate 
 	tick.BidSize = FloatAmount(bidSize)
 
 	ask, askErr := strconv.ParseFloat(record[simCfg.File.Columns.Ask], 64)
+	if ask == 0 {
+		return
+	}
 	if askErr != nil {
 		loadErr = errors.New("Ask Price could not be parsed")
 	}
@@ -223,6 +250,9 @@ func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate 
 	}
 	tick.Timestamp = filedate.Add(tickDuration)
 
+	if parseErr != nil {
+		return
+	}
 	if loadErr != nil {
 		log.Println(loadErr)
 		log.Fatal("record could not be loaded")

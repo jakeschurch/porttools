@@ -3,6 +3,7 @@ package porttools
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
 	"time"
 )
@@ -13,25 +14,25 @@ import (
 type Security struct {
 	Ticker              string
 	NumTicks            uint
-	BuyPrice, SellPrice datedMetric
+	BuyPrice, SellPrice *datedMetric
 
 	// Fields related to bid/ask prices
 	AvgBid, AvgAsk   Amount
-	LastBid, LastAsk datedMetric
-	MaxAsk, MinAsk   datedMetric
-	MaxBid, MinBid   datedMetric
+	LastBid, LastAsk *datedMetric
+	MaxAsk, MinAsk   *datedMetric
+	MaxBid, MinBid   *datedMetric
 	// Fields related to bid/ask volume
 	AvgBidSize, AvgAskSize Amount
-	MaxAskSize, MinAskSize datedMetric
-	MaxBidSize, MinBidSize datedMetric
+	MaxAskSize, MinAskSize *datedMetric
+	MaxBidSize, MinBidSize *datedMetric
 }
 
 // NewSecurity instantiates a new security from Tick data.
 func NewSecurity(tick Tick) *Security {
-	firstBid := datedMetric{Amount: tick.Bid, Date: tick.Timestamp}
-	firstAsk := datedMetric{Amount: tick.Ask, Date: tick.Timestamp}
-	firstBidSize := datedMetric{Amount: tick.BidSize, Date: tick.Timestamp}
-	firstAskSize := datedMetric{Amount: tick.AskSize, Date: tick.Timestamp}
+	firstBid := &datedMetric{Amount: tick.Bid, Date: tick.Timestamp}
+	firstAsk := &datedMetric{Amount: tick.Ask, Date: tick.Timestamp}
+	firstBidSize := &datedMetric{Amount: tick.BidSize, Date: tick.Timestamp}
+	firstAskSize := &datedMetric{Amount: tick.AskSize, Date: tick.Timestamp}
 
 	return &Security{
 		Ticker: tick.Ticker, NumTicks: 1,
@@ -49,15 +50,12 @@ func (s *Security) updateMetrics(tick Tick) {
 	s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
 	s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
 	s.AvgAskSize = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
-
-	s.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
-	s.LastBid = datedMetric{tick.Bid, tick.Timestamp}
-
+	s.LastAsk = &datedMetric{tick.Ask, tick.Timestamp}
+	s.LastBid = &datedMetric{tick.Bid, tick.Timestamp}
 	s.MaxBid = newMax(s.MaxBid, tick.Bid, tick.Timestamp)
 	s.MinBid = newMin(s.MinBid, tick.Bid, tick.Timestamp)
 	s.MaxBidSize = newMax(s.MaxBidSize, tick.BidSize, tick.Timestamp)
 	s.MinBidSize = newMin(s.MinBidSize, tick.BidSize, tick.Timestamp)
-
 	s.MaxAsk = newMax(s.MaxAsk, tick.Ask, tick.Timestamp)
 	s.MinAsk = newMin(s.MinAsk, tick.Ask, tick.Timestamp)
 }
@@ -68,25 +66,26 @@ type Position struct {
 	Volume              Amount
 	NumTicks            uint
 	AvgBid, AvgAsk      Amount
-	LastBid, LastAsk    datedMetric
-	MaxBid, MaxAsk      datedMetric
-	MinBid, MinAsk      datedMetric
-	BuyPrice, SellPrice datedMetric
+	LastBid, LastAsk    *datedMetric
+	MaxBid, MaxAsk      *datedMetric
+	MinBid, MinAsk      *datedMetric
+	BuyPrice, SellPrice *datedMetric
+}
+
+func (pos *Position) String() string {
+	return fmt.Sprintf("\nTicker: %s\nVolume: %d\nBuy Price: %d\nDate: %s",
+		pos.Ticker, pos.Volume/100, pos.LastBid.Amount, pos.BuyPrice.Date.String())
 }
 
 func (pos *Position) updateMetrics(tick *Tick) {
-
 	pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
 	pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
-
 	pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)
 	pos.MinBid = newMin(pos.MinBid, tick.Bid, tick.Timestamp)
-
 	pos.MaxAsk = newMax(pos.MaxAsk, tick.Ask, tick.Timestamp)
 	pos.MinAsk = newMin(pos.MinAsk, tick.Ask, tick.Timestamp)
-
-	pos.LastAsk = datedMetric{tick.Ask, tick.Timestamp}
-	pos.LastBid = datedMetric{tick.Bid, tick.Timestamp}
+	pos.LastAsk = &datedMetric{tick.Ask, tick.Timestamp}
+	pos.LastBid = &datedMetric{tick.Bid, tick.Timestamp}
 	pos.NumTicks++
 }
 
@@ -194,16 +193,16 @@ func newAvg(lastAvg Amount, nTicks uint, tickAmt Amount) Amount {
 	return numerator / (Amount(nTicks) + 1)
 }
 
-func newMax(lastMax datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+func newMax(lastMax *datedMetric, newPrice Amount, timestamp time.Time) *datedMetric {
 	if newPrice >= lastMax.Amount {
-		return datedMetric{Amount: newPrice, Date: timestamp}
+		return &datedMetric{Amount: newPrice, Date: timestamp}
 	}
 	return lastMax
 }
 
-func newMin(lastMin datedMetric, newPrice Amount, timestamp time.Time) datedMetric {
+func newMin(lastMin *datedMetric, newPrice Amount, timestamp time.Time) *datedMetric {
 	if newPrice <= lastMin.Amount {
-		return datedMetric{Amount: newPrice, Date: timestamp}
+		return &datedMetric{Amount: newPrice, Date: timestamp}
 	}
 	return lastMin
 }
