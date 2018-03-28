@@ -21,12 +21,12 @@ type Portfolio struct {
 	Active map[string]*PositionSlice `json:"active"`
 }
 
-func (port *Portfolio) updatePositions(tick *Tick) {
+func (port *Portfolio) updatePositions(tick Tick) {
 	for _, pos := range port.Active[tick.Ticker].positions {
 		if pos.LastBid.Date.Before(tick.Timestamp) {
 			break // REVIEW return instead of break?
 		}
-		pos.updateMetrics(tick)
+		pos.updateMetrics(&tick)
 	}
 }
 

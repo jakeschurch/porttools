@@ -23,33 +23,34 @@ const (
 )
 
 // Transact conducts agreement between Position and Order within a portfolio.
-func (oms *OMS) Transact(order *Order) error {
+func (oms *OMS) Transact(orderChan chan<- *Order, order *Order) error {
 
 	switch order.Buy {
 	case true: // in lieu of a buy function
+		oms.Port.Lock()
+		defer oms.Port.Unlock()
 		if _, exists := oms.Port.Active[order.Ticker]; !exists {
-			oms.Port.Lock()
 			oms.Port.Active[order.Ticker] = newPositionSlice()
-			oms.Port.Unlock()
 		}
 		order.Status = open
 		// Create new Position and add it to according position slice.
 		posBought := order.toPosition(order.Volume)
 		oms.Port.Active[order.Ticker].Push(posBought)
 
-		oms.openChan <- order
+		oms.openOrders = append(oms.openOrders, order)
 
 	case false: // sell
 		// Check to see if order can be fulfilled
 		// if not, change order volume to max amount it can sell
 		if oms.Port.Active[order.Ticker].totalVolume < order.Volume {
 			order.Status = cancelled
-			oms.prfmLog.orderChan <- order
+
+			oms.prfmLog.closedOrders = append(oms.prfmLog.closedOrders, order)
 			log.Println("Not enough volume to satisfy order")
 			return errors.New("Not enough volume to satisfy order")
 		}
 		order.Status = closed
-		oms.prfmLog.orderChan <- order
+		oms.prfmLog.closedOrders = append(oms.prfmLog.closedOrders, order)
 		oms.sell(*order)
 	}
 	return nil

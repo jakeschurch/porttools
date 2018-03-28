@@ -4,13 +4,13 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"strings"
 	// "fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -65,7 +65,7 @@ func (sim *Simulation) Run() {
 	if sim.oms.strat.algo == nil {
 		log.Fatal("Algorithm needs to be implemented by end-user")
 	}
-	go sim.oms.mux()
+	// go sim.oms.mux()
 	go sim.oms.prfmLog.mux(sim.end)
 
 	log.Println("loading input...")
@@ -103,8 +103,11 @@ func (sim *Simulation) Run() {
 	<-sim.end
 }
 
+func addToBench(ch chan<- *Tick, tick *Tick) {
+	ch <- tick
+}
+
 func (sim *Simulation) loadInput() error {
-	var filedate time.Time
 
 	sim.RLock()
 	simCfg := *sim.config
@@ -116,44 +119,6 @@ func (sim *Simulation) loadInput() error {
 		log.Fatal("No files matching the glob can be found")
 		return globErr
 	}
-
-	inputChan := newInputChan()
-
-	go func() {
-		var wg sync.WaitGroup
-		// inputDone := make(chan struct{})
-
-		for inputChan.recordC != nil || inputChan.tickC != nil {
-			select {
-			case record, ok := <-inputChan.recordC:
-				if !ok {
-					close(inputChan.tickC)
-					inputChan.recordC = nil
-					log.Println("Tick channel has been closed")
-					break
-				}
-				sim.prepRecord(inputChan.tickC, record, filedate, simCfg)
-
-			case tick, ok := <-inputChan.tickC:
-				if !ok {
-					log.Println("Sending inputDone signal")
-					// inputDone <- struct{}{}
-					inputChan.tickC = nil
-					continue
-				}
-				wg.Add(1)
-				go func() {
-					sim.oms.tickChan <- tick
-					wg.Done()
-				}()
-				// default:
-				// 	time.Sleep(time.Millisecond)
-			}
-		}
-		wg.Wait()
-		log.Println("input go func quit")
-		sim.waitOnInput <- struct{}{}
-	}()
 
 	for _, file := range fileGlob {
 		log.Println("Loading data from:", file)
@@ -182,51 +147,68 @@ func (sim *Simulation) loadInput() error {
 		if dateErr != nil {
 			log.Fatal("Date cannot be parsed")
 		}
-		filedate = lastDate
+		filedate := lastDate
 
-		var recordWG sync.WaitGroup
-		ticksRead := 0
-		for {
-			record, recordErr := r.Read()
-			if recordErr != nil {
-				if recordErr == io.EOF {
-					break
-				} else {
-					log.Fatal("Error reading record from file")
+		done := make(chan struct{})
+
+		recordSlice := make([]*[]string, 0)
+		go func() {
+			ticksRead := 0
+			for {
+				record, recordErr := r.Read()
+				if recordErr != nil {
+					if recordErr == io.EOF {
+						break
+					} else {
+						log.Fatal("Error reading record from file")
+					}
 				}
+				recordSlice = append(recordSlice, &record)
+				fmt.Printf("\r%d ticks read", ticksRead)
+				ticksRead++
 			}
-			recordWG.Add(1)
-			go func() {
-				inputChan.recordC <- record
-				recordWG.Done()
-			}()
-			fmt.Printf("\r%d ticks read", ticksRead)
-			ticksRead++
-		}
-		recordWG.Wait()
+			close(done)
+		}()
+		<-done
+		log.Println("Done reading records")
 
-		log.Println("all records have been read")
-		close(inputChan.recordC)
-		log.Println("record chan has been closed")
+		tickCh := make(chan *Tick)
+		recordChk := make(chan struct{})
+		go sim.sink(recordChk, tickCh, recordSlice, filedate, simCfg)
+		log.Println("Done sinking...")
+
+		processingDone := make(chan struct{})
+		go sim.oms.processTick(processingDone, tickCh)
+		<-recordChk
+		<-processingDone
+
+		log.Println("Done waiting on wg")
+		log.Println("Done waiting on input")
+		close(sim.oms.benchChan)
+		close(sim.oms.portChan)
+		sim.oms.endMux <- struct{}{}
+
 	}
-	<-sim.waitOnInput
-	log.Println("Done waiting on input")
-	close(sim.oms.benchChan)
-	close(sim.oms.portChan)
-	sim.oms.endMux <- struct{}{}
-
 	return nil
 }
 
-func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate time.Time, simCfg Config) {
-	var loadErr, parseErr error
+func (sim *Simulation) sink(done chan<- struct{}, outCh chan<- *Tick, slice []*[]string, filedate time.Time, simCfg Config) {
+	for _, val := range slice {
+		outCh <- sim.prepRecord(val, filedate, simCfg)
+	}
+	close(outCh)
+	close(done)
+}
 
+func (sim *Simulation) prepRecord(input *[]string, filedate time.Time, simCfg Config) *Tick {
+	var loadErr, parseErr error
+	record := *input
 	tick := new(Tick)
 	tick.Ticker = record[simCfg.File.Columns.Ticker]
 
 	bid, bidErr := strconv.ParseFloat(record[simCfg.File.Columns.Bid], 64)
 	if bid == 0 {
-		return
+		return nil
 	}
 	if bidErr != nil {
 		loadErr = errors.New("Bid Price could not be parsed")
@@ -241,7 +223,7 @@ func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate 
 
 	ask, askErr := strconv.ParseFloat(record[simCfg.File.Columns.Ask], 64)
 	if ask == 0 {
-		return
+		return nil
 	}
 	if askErr != nil {
 		loadErr = errors.New("Ask Price could not be parsed")
@@ -262,19 +244,13 @@ func (sim *Simulation) prepRecord(outChan chan *Tick, record []string, filedate 
 	tick.Timestamp = filedate.Add(tickDuration)
 
 	if parseErr != nil {
-		return
+		return nil
 	}
 	if loadErr != nil {
 		log.Println(loadErr)
 		log.Fatal("record could not be loaded")
 	}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		outChan <- tick
-		wg.Done()
-	}()
-	wg.Wait()
+	return tick
 }
 
 // TODO:
