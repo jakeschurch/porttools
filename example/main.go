@@ -19,18 +19,19 @@ func (algo algo) EntryLogic(tick pt.Tick) (*pt.Order, bool) {
 
 	return pt.NewMarketOrder(
 		true, tick.Ticker, tick.Bid, tick.Ask,
-		pt.FloatAmount(50.00), tick.Timestamp), true
+		pt.Amount(50.00), tick.Timestamp), true
 	// }
 	// return nil, false
 }
 
-func (algo algo) ExitLogic(tick pt.Tick, openOrder pt.Order) (*pt.Order, bool) {
+func (algo algo) ExitLogic(tick pt.Tick, openOrder *pt.Order) (*pt.Order, bool) {
 	// pctMoved := pt.DivideAmt(tick.Ask-openOrder.Bid, openOrder.Bid)
 	// if pctMoved >= 1 || pctMoved <= -1 {
 	// 	return pt.NewMarketOrder(
 	// 		false, tick.Ticker, tick.Bid, tick.Ask, openOrder.Volume, tick.Timestamp), true
 	// }
 	// return nil, false
+
 	return pt.NewMarketOrder(
 		false, tick.Ticker, tick.Bid, tick.Ask, openOrder.Volume, tick.Timestamp), true
 }
@@ -50,12 +51,12 @@ func (algo algo) ValidOrder(port *pt.Portfolio, order *pt.Order) bool {
 }
 
 func main() {
+
 	myAlgo := newAlgo()
 	cfgFile := "/home/jake/code/go/workspace/src/github.com/jakeschurch/porttools/example/exampleConfig.json"
-	sim, simErr := pt.NewSimulation(cfgFile)
+	sim, simErr := pt.NewSimulation(*myAlgo, cfgFile)
 	if simErr != nil {
 		log.Fatal("Error in Simulation: ", simErr)
 	}
-	pt.LoadAlgorithm(sim, myAlgo)
 	sim.Run()
 }

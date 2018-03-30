@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -12,6 +13,7 @@ import (
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embedded into an Index or Benchmark.
 type Security struct {
+	sync.Mutex
 	Ticker              string
 	NumTicks            uint
 	BuyPrice, SellPrice *datedMetric
@@ -46,6 +48,7 @@ func NewSecurity(tick Tick) *Security {
 }
 
 func (s *Security) updateMetrics(tick Tick) {
+
 	s.AvgBid = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
 	s.AvgAsk = newAvg(s.AvgAsk, s.NumTicks, tick.Ask)
 	s.AvgBidSize = newAvg(s.AvgBid, s.NumTicks, tick.Bid)
@@ -77,7 +80,8 @@ func (pos *Position) String() string {
 		pos.Ticker, pos.Volume/100, pos.LastBid.Amount, pos.BuyPrice.Date.String())
 }
 
-func (pos *Position) updateMetrics(tick *Tick) {
+// UpdateMetrics uses tick data to bring its metrics up to date.
+func (pos *Position) UpdateMetrics(tick Tick) {
 	pos.AvgBid = newAvg(pos.AvgBid, pos.NumTicks, tick.Bid)
 	pos.AvgAsk = newAvg(pos.AvgAsk, pos.NumTicks, tick.Ask)
 	pos.MaxBid = newMax(pos.MaxBid, tick.Bid, tick.Timestamp)

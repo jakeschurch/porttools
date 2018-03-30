@@ -3,28 +3,31 @@ package porttools
 import (
 	"encoding/csv"
 	"errors"
-	"fmt"
-	"strings"
-	// "fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 )
 
+var (
+	ErrInvalidFileGlob  = errors.New("No files could be found from file glob")
+	ErrInvalidFileDelim = errors.New("File delimiter could not be parsed")
+)
+
 // LoadAlgorithm ensures that an Algorithm interface is implemented in the Simulation pipeline to be used by other functions.
-func LoadAlgorithm(sim *Simulation, algo Algorithm) bool {
-	sim.oms.strat.algo = algo
+func (sim *Simulation) LoadAlgorithm(algo Algorithm) bool {
+	sim.strategy = newStrategy(algo, []string{})
 	return true
 }
 
 // NewSimulation is a constructor for the Simulation data type,
 // and a pre-processor function for the embedded types.
-func NewSimulation(cfgFile string) (*Simulation, error) {
+func NewSimulation(algo Algorithm, cfgFile string) (*Simulation, error) {
 	cfg, cfgErr := loadConfig(cfgFile)
 	if cfgErr != nil {
 		log.Fatal("Config error reached: ", cfgErr)
@@ -33,17 +36,16 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 
 	startingCash := FloatAmount(cfg.Backtest.StartCashAmt)
 	sim := &Simulation{
-		config: cfg,
-		oms: newOMS(
-			startingCash,
-			cfg.Simulation.Costmethod,
-			cfg.Backtest.IgnoreSecurities,
-			cfg.Simulation.OutFmt,
-		),
-		inputChans: make([]*inputChan, 0),
-		// create channels.
-		end:         make(chan struct{}),
-		waitOnInput: make(chan struct{}),
+		config:    *cfg,
+		oms:       newOMS(),
+		port:      NewPortfolio(startingCash),
+		prfmLog:   newPrfmLog(),
+		benchmark: NewIndex(),
+		strategy:  newStrategy(algo, []string{}),
+		// Channels
+		processChan: make(chan *Tick),
+		tickChan:    make(chan *Tick),
+		errChan:     make(chan error),
 	}
 	return sim, nil
 }
@@ -51,159 +53,145 @@ func NewSimulation(cfgFile string) (*Simulation, error) {
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
 	sync.RWMutex
-	oms    *OMS
-	config *Config
-	// Channels
-	inputChans  []*inputChan
-	end         chan struct{}
-	waitOnInput chan struct{}
+	oms         *OMS
+	config      Config
+	port        *Portfolio
+	prfmLog     *PrfmLog
+	benchmark   *Index
+	strategy    strategy
+	processChan chan *Tick
+	tickChan    chan *Tick
+	errChan     chan error
 }
 
 // Run acts as the simulation's primary pipeline function; directing everything to where it needs to go.
-func (sim *Simulation) Run() {
+func (sim *Simulation) Run() error {
+	// recordChan := make(chan []string)
+
 	log.Println("Starting sim...")
-	if sim.oms.strat.algo == nil {
+	if sim.strategy.algorithm == nil {
 		log.Fatal("Algorithm needs to be implemented by end-user")
 	}
-	// go sim.oms.mux()
-	go sim.oms.prfmLog.mux(sim.end)
 
 	log.Println("loading input...")
-	go sim.loadInput()
+	_, filedate := fileInfo(sim.config)
+	go sim.setup(sim.tickChan, filedate, sim.config)
 
-	// <-sim.processTicks // Wait for signal to start processing tick data
-	// close(sim.processTicks)
+	// counter := 0
+	done := make(chan struct{})
 
-	// go func(tickChan *) {
-	// 	for {
-	// 		select {
-	// 		case tick, ok := <-*tickCh:
-	//
-	// 			if !ok {
-	// 				sim.Lock()
-	// 				if len(sim.inputChans) > 1 {
-	// 					log.Println(len(sim.inputChans))
-	// 					log.Println("re-slicing inputChans")
-	// 					sim.inputChans = sim.inputChans[0:]
-	// 					sim.Unlock()
-	// 					*tickCh = nil
-	// 					goto restart
-	// 				} else {
-	// 					sim.conclude()
-	// 					break
-	// 				}
-	// 			}
-	// 			log.Println("Simulating!!!!")
-	// 			sim.simulateData(tick)
-	// 			// default:
-	// 			// 	time.Sleep(1 * time.Millisecond)
-	// 		}
-	// 	}
-	// }()
-	<-sim.end
-}
+	go func() {
+		amtLeft := 0
+		for sim.tickChan != nil {
+			select {
+			// case record, ok := <-recordChan:
+			// 	if !ok {
+			// 		recordChan = nil
+			// 		close()
+			// 		continue
+			// 	}
+			// 	counter++
+			// 	log.Printf("\rTotal of %d ticks processed", counter)
+			// 	if record != nil {
+			// 		go sim.prepRecord(record, filedate, sim.config)
+			// 	}
 
-func addToBench(ch chan<- *Tick, tick *Tick) {
-	ch <- tick
-}
-
-func (sim *Simulation) loadInput() error {
-
-	sim.RLock()
-	simCfg := *sim.config
-	sim.RUnlock()
-	// log.Println(simCfg.File.Glob)
-	fileGlob, globErr := filepath.Glob(simCfg.File.Glob)
-
-	if globErr != nil || len(fileGlob) == 0 {
-		log.Fatal("No files matching the glob can be found")
-		return globErr
-	}
-
-	for _, file := range fileGlob {
-		log.Println("Loading data from:", file)
-		datafile, fileErr := os.Open(file)
-
-		if fileErr != nil {
-			log.Fatal("File cannot be loaded")
-			panic("File cannot be loaded")
-		}
-		r := csv.NewReader(datafile)
-
-		if delim, _ := utf8.DecodeRuneInString(simCfg.File.Delim); delim == utf8.RuneError {
-			log.Fatal("delim cannot be parsed")
-			// return errors.New("File delimiter could not be parsed")
-		} else {
-			r.Comma = delim
-		}
-		if simCfg.File.Headers == true {
-			r.Read()
-		}
-
-		lastUnderscore := strings.LastIndex(file, "_")
-		fileDate := file[lastUnderscore+1:]
-
-		lastDate, dateErr := time.Parse(simCfg.File.ExampleDate, fileDate)
-		if dateErr != nil {
-			log.Fatal("Date cannot be parsed")
-		}
-		filedate := lastDate
-
-		done := make(chan struct{})
-
-		recordSlice := make([]*[]string, 0)
-		go func() {
-			ticksRead := 0
-			for {
-				record, recordErr := r.Read()
-				if recordErr != nil {
-					if recordErr == io.EOF {
-						break
-					} else {
-						log.Fatal("Error reading record from file")
-					}
+			case tick, ok := <-sim.tickChan:
+				amtLeft++
+				if !ok {
+					sim.tickChan = nil
+					close(done)
 				}
-				recordSlice = append(recordSlice, &record)
-				fmt.Printf("\r%d ticks read", ticksRead)
-				ticksRead++
+				if tick != nil {
+					sim.process(tick)
+				}
+
+				// case tickToProcess, ok := <-sim.processChan:
+				// 	amtLeft--
+				// 	if !ok {
+				// 		close(done)
+				// 		sim.processChan = nil
+				// 		return
+				// 	}
+				// 	if tickToProcess != nil {
+				// 		sim.errChan <- sim.process(tickToProcess)
+				// 	}
 			}
-			close(done)
-		}()
-		<-done
-		log.Println("Done reading records")
+		}
+	}()
+	<-done
+	log.Println(len(sim.prfmLog.closedPositions))
+	log.Println(len(sim.prfmLog.closedOrders))
+	getResults(sim.prfmLog.closedPositions, sim.benchmark.Securities, sim.config.Simulation.OutFmt)
 
-		tickCh := make(chan *Tick)
-		recordChk := make(chan struct{})
-		go sim.sink(recordChk, tickCh, recordSlice, filedate, simCfg)
-		log.Println("Done sinking...")
-
-		processingDone := make(chan struct{})
-		go sim.oms.processTick(processingDone, tickCh)
-		<-recordChk
-		<-processingDone
-
-		log.Println("Done waiting on wg")
-		log.Println("Done waiting on input")
-		close(sim.oms.benchChan)
-		close(sim.oms.portChan)
-		sim.oms.endMux <- struct{}{}
-
-	}
 	return nil
 }
 
-func (sim *Simulation) sink(done chan<- struct{}, outCh chan<- *Tick, slice []*[]string, filedate time.Time, simCfg Config) {
-	for _, val := range slice {
-		outCh <- sim.prepRecord(val, filedate, simCfg)
+func fileInfo(cfg Config) (string, time.Time) {
+	fileGlob, err := filepath.Glob(cfg.File.Glob)
+	if err != nil || len(fileGlob) == 0 {
+		// return ErrInvalidFileGlob
 	}
-	close(outCh)
-	close(done)
+	file := fileGlob[0]
+	lastUnderscore := strings.LastIndex(file, "_")
+	fileDate := file[lastUnderscore+1:]
+
+	lastDate, dateErr := time.Parse(cfg.File.ExampleDate, fileDate)
+	if dateErr != nil {
+		log.Fatal("Date cannot be parsed")
+	}
+	filedate := lastDate
+	return file, filedate
 }
 
-func (sim *Simulation) prepRecord(input *[]string, filedate time.Time, simCfg Config) *Tick {
+func (sim *Simulation) setup(tickChan chan<- *Tick, filedate time.Time, cfg Config) {
+	// Check if valid file path/s
+	fileGlob, err := filepath.Glob(cfg.File.Glob)
+	if err != nil || len(fileGlob) == 0 {
+		log.Fatal(ErrInvalidFileGlob)
+	}
+	datafile := fileGlob[0]
+	file, err := os.Open(datafile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	r := csv.NewReader(file)
+
+	delim, _ := utf8.DecodeRuneInString(cfg.File.Delim)
+	// if delim == utf8.RuneError {
+	// 	log.Println("uh oh")
+	// return ErrInvalidFileDelim
+	// }
+	r.Comma = delim
+	if cfg.File.Headers == true {
+		r.Read()
+	}
+	for {
+		record, err := r.Read()
+		if err != nil {
+			if err == io.EOF {
+				log.Println("EOF")
+				break
+			}
+		}
+		tickChan <- sim.prepRecord(record, filedate, cfg)
+	}
+	log.Println("closing tickchan")
+	close(sim.tickChan)
+}
+
+func (sim *Simulation) loadRecords(outChan chan<- []string, records [][]string) {
+	for _, record := range records[1:] {
+		outChan <- record
+	}
+	close(outChan)
+}
+
+func (sim *Simulation) prepRecord(record []string, filedate time.Time, simCfg Config) *Tick {
 	var loadErr, parseErr error
-	record := *input
-	tick := new(Tick)
+	var tick *Tick
+
+	tick = new(Tick)
 	tick.Ticker = record[simCfg.File.Columns.Ticker]
 
 	bid, bidErr := strconv.ParseFloat(record[simCfg.File.Columns.Bid], 64)
@@ -219,7 +207,7 @@ func (sim *Simulation) prepRecord(input *[]string, filedate time.Time, simCfg Co
 	if bidSzErr != nil {
 		loadErr = errors.New("Bid Size could not be parsed")
 	}
-	tick.BidSize = FloatAmount(bidSize)
+	tick.BidSize = Amount(bidSize)
 
 	ask, askErr := strconv.ParseFloat(record[simCfg.File.Columns.Ask], 64)
 	if ask == 0 {
@@ -234,7 +222,7 @@ func (sim *Simulation) prepRecord(input *[]string, filedate time.Time, simCfg Co
 	if askSzErr != nil {
 		loadErr = errors.New("Ask Size could not be parsed")
 	}
-	tick.AskSize = FloatAmount(askSize)
+	tick.AskSize = Amount(askSize)
 
 	tickDuration, timeErr := time.ParseDuration(record[simCfg.File.Columns.Timestamp] + simCfg.File.TimestampUnit)
 
@@ -253,48 +241,81 @@ func (sim *Simulation) prepRecord(input *[]string, filedate time.Time, simCfg Co
 	return tick
 }
 
-// TODO:
-func (sim *Simulation) conclude() {
-	sim.oms.closeHandle()
+// Process simulates tick data going through our simulation pipeline
+func (sim *Simulation) process(tick *Tick) error {
 
-	sim.close()
-}
-
-func (sim *Simulation) simulateData(tick *Tick) {
-	if _, exists := sim.oms.strat.ignore[tick.Ticker]; exists {
-		return
+	// Update benchmark metrics
+	if err := sim.benchmark.UpdateMetrics(*tick); err != nil {
+		if err == ErrNoSecurityExists {
+			sim.benchmark.AddNew(*tick)
+		} else {
+			return err
+		}
 	}
-	go func() { sim.oms.tickChan <- tick }()
-}
+	// Add entry order if it meets valid order logic
+	if newOrder, err := sim.strategy.checkEntryLogic(sim.port, *tick); err == nil {
+		txAmount, err := sim.oms.addOrder(newOrder)
+		if err != nil {
+			return err
+		}
+		// create new position from order
+		newPos := newOrder.toPosition()
+		// add new position (holding) and change in cash from order to portfolio
+		if err := sim.port.AddHolding(newPos, txAmount); err != nil {
+			if err == ErrNoSliceExists {
+				sim.port.AddNew(newPos, txAmount)
+			} else {
+				return err
+			}
 
-// close sends a signal to close all channels and exit current processes
-func (sim *Simulation) close() {
-	sim.end <- struct{}{}
-}
+			log.Println(sim.port)
 
-func newInputChan() *inputChan {
-	return &inputChan{
-		recordC: make(chan []string, 8000),
-		tickC:   make(chan *Tick, 4000),
+		}
 	}
-}
 
-type inputChan struct {
-	recordC chan []string
-	tickC   chan *Tick
-}
+	// Check if open order with same ticker exists
+	if matchedOrders, err := sim.oms.existsInOrders(tick.Ticker); err != ErrEmptySlice {
+		// if openOrder with matching ticker exists, it means we are holding a position in our portfolio
+		// - so update portfolio metrics
 
-// func(inChan *inputChan) run() {
-// 	go func() {
-// 		for inChan.tickC != nil {
-// 			select {
-// 				case
-// 			}
-// 		}
-// 	}
-// }
+		if err := sim.port.UpdateMetrics(*tick); err != nil {
+			return err
+		}
 
-func (ch *inputChan) deconstruct() {
-	close(ch.recordC)
-	close(ch.tickC)
+		for _, matchedOrder := range matchedOrders {
+			if newClosedOrder, err := sim.strategy.checkExitLogic(sim.port, matchedOrder, *tick); err == nil {
+
+				sim.port.Lock()
+				txAmount, closedPositions, deleteSlice, err := sim.oms.TransactSell(newClosedOrder,
+					sim.config.Simulation.Costmethod,
+					sim.port.active[tick.Ticker])
+				sim.port.Unlock()
+
+				if err != nil {
+					return err
+				}
+				// Update held Cash amount in portfolio
+				sim.port.UpdateCash(txAmount)
+
+				// Delete holding slice from portfolio active holdings map if now empty
+				if deleteSlice {
+					sim.port.Lock()
+					delete(sim.port.active, tick.Ticker)
+					sim.port.Unlock()
+				}
+
+				// Add closed positions (holdings) to performance log
+				for _, closedPos := range closedPositions {
+					sim.prfmLog.addPosition(closedPos)
+				}
+
+				// Add closed order to performance log
+				if err := sim.prfmLog.addOrder(newClosedOrder); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	log.Println("all done")
+	return nil
 }

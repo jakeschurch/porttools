@@ -16,7 +16,7 @@ const (
 	// TODO: JSON
 )
 
-func (prfmLog *PrfmLog) getHeaders() []string {
+func positionHeaders() []string {
 
 	return []string{
 		"Ticker",
@@ -63,11 +63,11 @@ func (result *result) ToSlice() []string {
 	}
 }
 
-func (prfmLog *PrfmLog) toCSV() (ok bool) {
+func resultsToCSV(results []result) (ok bool) {
 	var output [][]string
-	output = append(output, prfmLog.getHeaders())
+	output = append(output, positionHeaders())
 
-	for _, result := range prfmLog.results {
+	for _, result := range results {
 		output = append(output, result.ToSlice())
 	}
 
@@ -89,32 +89,24 @@ func (prfmLog *PrfmLog) toCSV() (ok bool) {
 	return true
 }
 
-func (oms *OMS) outputResults() {
-	// TODO: json, csv outs
-	switch oms.prfmLog.outFmt {
-	case CSV:
-		oms.prfmLog.toCSV()
-	}
-}
-
 type result struct {
-	Ticker    string `json:"ticker"`
-	Filled    uint   `json:"filled"`
-	AvgVolume Amount `json:"avgVolume"`
+	Ticker    string
+	Filled    uint
+	AvgVolume Amount
 
-	BuyValue Amount `json:"buyValue"`
-	EndValue Amount `json:"endValue"`
+	BuyValue Amount
+	EndValue Amount
 
-	AvgBid Amount       `json:"avgBid"`
-	MaxBid *datedMetric `json:"maxBid"`
-	MinBid *datedMetric `json:"minBid"`
+	AvgBid Amount
+	MaxBid *datedMetric
+	MinBid *datedMetric
 
-	AvgAsk Amount       `json:"avgAsk"`
-	MaxAsk *datedMetric `json:"maxAsk"`
-	MinAsk *datedMetric `json:"minAsk"`
+	AvgAsk Amount
+	MaxAsk *datedMetric
+	MinAsk *datedMetric
 	// TODO REVIEW: avgReturn
-	PctReturn Amount `json:"pctReturn"`
-	Alpha     Amount `json:"alpha"`
+	PctReturn Amount
+	Alpha     Amount
 }
 
 func (result *result) update(pos *Position) {
@@ -134,7 +126,7 @@ func (result *result) update(pos *Position) {
 	return
 }
 
-func (result *result) averageize() { // REVIEW:  oh dear god
+func (result *result) averageize() {
 	amtFilled := Amount(result.Filled)
 	result.AvgBid /= amtFilled
 	result.AvgAsk /= amtFilled
