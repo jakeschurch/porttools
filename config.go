@@ -36,12 +36,12 @@ type Config struct {
 		TimestampUnit string `json:"timestampUnit"`
 
 		Columns struct {
-			Ticker    int `json:"ticker"`
-			Timestamp int `json:"timestamp"`
-			Bid       int `json:"bid"`
-			BidSize   int `json:"bidSize"`
-			Ask       int `json:"ask"`
-			AskSize   int `json:"askSize"`
+			Ticker    uint8 `json:"ticker"`
+			Timestamp uint8 `json:"timestamp"`
+			Bid       uint8 `json:"bid"`
+			BidSize   uint8 `json:"bidSize"`
+			Ask       uint8 `json:"ask"`
+			AskSize   uint8 `json:"askSize"`
 		} `json:"columns"`
 	} `json:"file"`
 

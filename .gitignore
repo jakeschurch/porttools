@@ -19,3 +19,7 @@ TODO\.md
 \.vscode/
 
 *.swp
+
+example/out\.png
+
+out\.png

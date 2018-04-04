@@ -1,8 +1,9 @@
 package main
 
 import (
-	pt "github.com/jakeschurch/porttools"
 	"log"
+
+	pt "github.com/jakeschurch/porttools"
 )
 
 func newAlgo() *algo {
@@ -53,7 +54,7 @@ func (algo algo) ValidOrder(port *pt.Portfolio, order *pt.Order) bool {
 func main() {
 
 	myAlgo := newAlgo()
-	cfgFile := "/home/jake/code/go/workspace/src/github.com/jakeschurch/porttools/example/exampleConfig.json"
+	cfgFile := "/home/jake/go/src/github.com/jakeschurch/porttools/example/exampleConfig.json"
 	sim, simErr := pt.NewSimulation(*myAlgo, cfgFile)
 	if simErr != nil {
 		log.Fatal("Error in Simulation: ", simErr)

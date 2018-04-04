@@ -271,7 +271,6 @@ func (slice *HoldingSlice) mux() {
 
 // AddNew adds a new holding to the holdings slice.
 func (slice *HoldingSlice) addNew(newHolding *Position) error {
-	log.Println(newHolding.Ticker)
 	slice.Lock()
 	slice.holdings = append(slice.holdings, newHolding)
 	slice.len++
