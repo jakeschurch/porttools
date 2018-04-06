@@ -41,6 +41,7 @@ func NewSecurity(tick Tick) *Security {
 		AvgBid: tick.Bid, AvgAsk: tick.Ask,
 		MaxBid: firstBid, MaxAsk: firstAsk,
 		MinBid: firstBid, MinAsk: firstAsk,
+		BuyPrice:   firstAsk,
 		AvgBidSize: tick.BidSize, AvgAskSize: tick.AskSize,
 		MaxBidSize: firstBidSize, MaxAskSize: firstAskSize,
 		MinBidSize: firstBidSize, MinAskSize: firstAskSize,
@@ -119,15 +120,17 @@ func (amt Amount) ToCurrency() string {
 	str := strconv.Itoa(int(amt))
 
 	b := bytes.NewBufferString(str)
+
 	numCommas := (b.Len() - 2) / 3
 
 	j := 0
-	out := make([]byte, b.Len()+numCommas+2) // 2 extra placeholders for a `$` and a `.`
+	out := make([]byte, b.Len()+numCommas+3) // 2 extra placeholders for a `$` and a `.`
+
 	for i, v := range b.Bytes() {
 		if i == (b.Len() - 2) {
 			out[j], _ = bytes.NewBufferString(".").ReadByte()
 			j++
-		} else if (i-1)%3 == 0 {
+		} else if (i-1)%3 == 0 && b.Len() > 4 {
 			out[j], _ = bytes.NewBufferString(",").ReadByte()
 			j++
 		} else if i == 0 {
@@ -138,6 +141,10 @@ func (amt Amount) ToCurrency() string {
 		j++
 	}
 	return string(out)
+}
+
+func (amt Amount) String() string {
+	return string(amt)
 }
 
 // ToVolume returns a string representation of a quantity or volume.

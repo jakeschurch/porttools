@@ -9,7 +9,7 @@ import (
 type PrfmLog struct {
 	sync.Mutex
 	closedOrders    []*Order
-	closedPositions []*Position
+	closedPositions []Position
 	orderChan       chan *Order
 	posChan         chan *Position
 	errChan         chan error
@@ -19,14 +19,13 @@ type PrfmLog struct {
 func newPrfmLog() *PrfmLog {
 	prfmLog := PrfmLog{
 		closedOrders:    make([]*Order, 0),
-		closedPositions: make([]*Position, 0),
-		// create channels.
+		closedPositions: make([]Position, 0),
 	}
 	return &prfmLog
 }
 
 // AddPosition adds a closed position to the performance log's closed position slice.
-func (prfmLog *PrfmLog) addPosition(pos *Position) error {
+func (prfmLog *PrfmLog) addPosition(pos Position) error {
 	prfmLog.Lock()
 	prfmLog.closedPositions = append(prfmLog.closedPositions, pos)
 	prfmLog.Unlock()
@@ -39,13 +38,14 @@ func (prfmLog *PrfmLog) addOrder(order *Order) error {
 	return nil
 }
 
-func getResults(closedPositions []*Position, benchmarkMap map[string]*Security, outputFormat OutputFmt) {
+func getResults(closedPositions []Position, benchmarkMap map[string]*Security, outputFormat OutputFmt) {
 	var results []result
 
 	// create slice of all position keys
 	positionKeys := make([]string, 0)
 
 	for _, position := range closedPositions {
+
 		if !findKey(positionKeys, position.Ticker) {
 			positionKeys = append(positionKeys, position.Ticker)
 		}
@@ -62,7 +62,7 @@ func getResults(closedPositions []*Position, benchmarkMap map[string]*Security, 
 	}
 }
 
-func newResult(pos *Position) result {
+func newResult(pos Position) result {
 	result := result{
 		Ticker:    pos.Ticker,
 		Filled:    1,
@@ -79,32 +79,28 @@ func newResult(pos *Position) result {
 		MaxAsk: pos.MaxAsk,
 		MinAsk: pos.MinAsk,
 	}
-
 	return result
 }
-func createResult(positions []*Position, security *Security) result {
+func createResult(positions []Position, security *Security) result {
 	var posResult result
-	// create result struct
-	result := result{Ticker: positions[0].Ticker}
 
 	// loop through and update metrics accordingly
 	for index, pos := range positions {
 		if index == 0 {
 			posResult = newResult(positions[index])
-		} else {
-			posResult.update(pos)
 		}
+		posResult.update(pos)
 	}
-	result.averageize()
+	posResult.averageize()
 
 	if security == nil {
-		result.Alpha = Amount(0)
-		return result
+		posResult.Alpha = Amount(0)
+		return posResult
 	}
 	// NOTE: this is NOT on an aggregate basis at the moment.
-	alpha := Amount(result.PctReturn) - (security.LastAsk.Amount-security.BuyPrice.Amount)/security.BuyPrice.Amount
-	result.Alpha = alpha
-	return result
+	benchmarkReturn := DivideAmt((security.LastAsk.Amount - security.BuyPrice.Amount), security.BuyPrice.Amount)
+	posResult.Alpha = posResult.PctReturn - benchmarkReturn
+	return posResult
 }
 
 // - max-drawdown

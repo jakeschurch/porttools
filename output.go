@@ -45,7 +45,7 @@ func (result *result) ToSlice() []string {
 	return []string{
 		result.Ticker,
 		string(result.Filled),
-		result.AvgVolume.ToVolume(),
+		result.AvgVolume.String(),
 		result.BuyValue.ToCurrency(),
 		result.EndValue.ToCurrency(),
 		result.AvgBid.ToCurrency(),
@@ -109,7 +109,7 @@ type result struct {
 	Alpha     Amount
 }
 
-func (result *result) update(pos *Position) {
+func (result *result) update(pos Position) {
 	result.AvgBid += pos.AvgBid
 	result.AvgAsk += pos.AvgAsk
 
@@ -128,9 +128,9 @@ func (result *result) update(pos *Position) {
 
 func (result *result) averageize() {
 	amtFilled := Amount(result.Filled)
-	result.AvgBid /= amtFilled
-	result.AvgAsk /= amtFilled
+	result.AvgBid = DivideAmt(result.AvgBid, amtFilled)
+	result.AvgAsk = DivideAmt(result.AvgAsk, amtFilled)
 
-	result.PctReturn = (result.EndValue - result.BuyValue) / result.BuyValue
+	result.PctReturn = DivideAmt((result.EndValue - result.BuyValue), result.BuyValue)
 	return
 }

@@ -23,3 +23,9 @@ TODO\.md
 example/out\.png
 
 out\.png
+
+example/debug
+
+example/simOutput\.csv
+
+*.csv

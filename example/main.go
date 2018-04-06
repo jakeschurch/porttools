@@ -32,9 +32,11 @@ func (algo algo) ExitLogic(tick pt.Tick, openOrder *pt.Order) (*pt.Order, bool) 
 	// 		false, tick.Ticker, tick.Bid, tick.Ask, openOrder.Volume, tick.Timestamp), true
 	// }
 	// return nil, false
-
-	return pt.NewMarketOrder(
-		false, tick.Ticker, tick.Bid, tick.Ask, openOrder.Volume, tick.Timestamp), true
+	if tick.Ticker == openOrder.Ticker {
+		return pt.NewMarketOrder(
+			false, tick.Ticker, tick.Bid, tick.Ask, openOrder.Volume, tick.Timestamp), true
+	}
+	return nil, false
 }
 
 func (algo algo) ValidOrder(port *pt.Portfolio, order *pt.Order) bool {
