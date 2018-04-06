@@ -16,8 +16,8 @@ func selectionSort(A []*Position) []*Position {
 	return A
 }
 
-func filter(positions []*Position, key string) []*Position {
-	filtered := make([]*Position, 0)
+func filter(positions []Position, key string) []Position {
+	filtered := make([]Position, 0)
 
 	for _, position := range positions {
 		if position.Ticker == key {

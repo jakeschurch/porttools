@@ -16,7 +16,7 @@ const (
 	// TODO: JSON
 )
 
-func (prfmLog *PrfmLog) getHeaders() []string {
+func positionHeaders() []string {
 
 	return []string{
 		"Ticker",
@@ -45,7 +45,7 @@ func (result *result) ToSlice() []string {
 	return []string{
 		result.Ticker,
 		string(result.Filled),
-		result.AvgVolume.ToVolume(),
+		result.AvgVolume.String(),
 		result.BuyValue.ToCurrency(),
 		result.EndValue.ToCurrency(),
 		result.AvgBid.ToCurrency(),
@@ -63,59 +63,53 @@ func (result *result) ToSlice() []string {
 	}
 }
 
-func (prfmLog *PrfmLog) toCSV() (ok bool) {
+func resultsToCSV(results []result) (ok bool) {
 	var output [][]string
-	output = append(output, prfmLog.getHeaders())
+	output = append(output, positionHeaders())
 
-	for _, result := range prfmLog.results {
+	for _, result := range results {
 		output = append(output, result.ToSlice())
 	}
 
-	outFile, fileErr := os.Create("~/Desktop/simOutput.csv")
+	outFile, fileErr := os.Create("simOutput.csv")
 	if fileErr != nil {
-		log.Fatal("Cannot create file", fileErr)
+		log.Fatal("Cannot create file: ", fileErr)
 	}
 
 	// TEMP: allow filename as method argument
 	w := csv.NewWriter(outFile)
 
 	for _, row := range output {
-		if err := w.Write(row); err != nil {
-			log.Fatalln("Could not write row")
-		}
+		log.Println(row)
+		w.Write(row)
 	}
+	w.Flush()
+	outFile.Close()
+
 	return true
 }
 
-func (oms *OMS) outputResults() {
-	// TODO: json, csv outs
-	switch oms.prfmLog.outFmt {
-	case CSV:
-		oms.prfmLog.toCSV()
-	}
-}
-
 type result struct {
-	Ticker    string `json:"ticker"`
-	Filled    uint   `json:"filled"`
-	AvgVolume Amount `json:"avgVolume"`
+	Ticker    string
+	Filled    uint
+	AvgVolume Amount
 
-	BuyValue Amount `json:"buyValue"`
-	EndValue Amount `json:"endValue"`
+	BuyValue Amount
+	EndValue Amount
 
-	AvgBid Amount      `json:"avgBid"`
-	MaxBid datedMetric `json:"maxBid"`
-	MinBid datedMetric `json:"minBid"`
+	AvgBid Amount
+	MaxBid *datedMetric
+	MinBid *datedMetric
 
-	AvgAsk Amount      `json:"avgAsk"`
-	MaxAsk datedMetric `json:"maxAsk"`
-	MinAsk datedMetric `json:"minAsk"`
+	AvgAsk Amount
+	MaxAsk *datedMetric
+	MinAsk *datedMetric
 	// TODO REVIEW: avgReturn
-	PctReturn Amount `json:"pctReturn"`
-	Alpha     Amount `json:"alpha"`
+	PctReturn Amount
+	Alpha     Amount
 }
 
-func (result *result) update(pos *Position) {
+func (result *result) update(pos Position) {
 	result.AvgBid += pos.AvgBid
 	result.AvgAsk += pos.AvgAsk
 
@@ -132,11 +126,11 @@ func (result *result) update(pos *Position) {
 	return
 }
 
-func (result *result) averageize() { // REVIEW:  oh dear god
+func (result *result) averageize() {
 	amtFilled := Amount(result.Filled)
-	result.AvgBid /= amtFilled
-	result.AvgAsk /= amtFilled
+	result.AvgBid = DivideAmt(result.AvgBid, amtFilled)
+	result.AvgAsk = DivideAmt(result.AvgAsk, amtFilled)
 
-	result.PctReturn = (result.EndValue - result.BuyValue) / result.BuyValue
+	result.PctReturn = DivideAmt((result.EndValue - result.BuyValue), result.BuyValue)
 	return
 }
