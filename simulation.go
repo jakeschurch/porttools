@@ -11,6 +11,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jakeschurch/porttools/collection/benchmark"
+	"github.com/jakeschurch/porttools/collection/portfolio"
+	"github.com/jakeschurch/porttools/config"
+	"github.com/jakeschurch/porttools/instrument"
+	"github.com/jakeschurch/porttools/output"
+	"github.com/jakeschurch/porttools/trading"
+	"github.com/jakeschurch/porttools/trading/order"
+	"github.com/jakeschurch/porttools/trading/strategy"
+	"github.com/jakeschurch/porttools/trading/strategy/algorithm"
+	"github.com/jakeschurch/porttools/utils"
 )
 
 var (
@@ -22,31 +33,31 @@ var (
 )
 
 // LoadAlgorithm ensures that an Algorithm interface is implemented in the Simulation pipeline to be used by other functions.
-func (sim *Simulation) LoadAlgorithm(algo Algorithm) bool {
-	sim.strategy = newStrategy(algo, make([]string, 0))
+func (sim *Simulation) LoadAlgorithm(algo algorithm.Algorithm) bool {
+	sim.strategy = strategy.New(algo, make([]string, 0))
 	return true
 }
 
 // NewSimulation is a constructor for the Simulation data type,
 // and a pre-processor function for the embedded types.
-func NewSimulation(algo Algorithm, cfgFile string) (*Simulation, error) {
-	cfg, cfgErr := loadConfig(cfgFile)
+func NewSimulation(algo algorithm.Algorithm, cfgFile string) (*Simulation, error) {
+	cfg, cfgErr := config.Load(cfgFile)
 	if cfgErr != nil {
 		log.Fatal("Config error reached: ", cfgErr)
 		return nil, cfgErr
 	}
 
-	startingCash := FloatAmount(cfg.Backtest.StartCashAmt)
+	startingCash := utils.FloatAmount(cfg.Backtest.StartCashAmt)
 	sim := &Simulation{
 		config:    *cfg,
 		oms:       NewOMS(),
-		port:      NewPortfolio(startingCash),
+		port:      portfolio.New(startingCash),
 		prfmLog:   newPrfmLog(),
-		benchmark: NewIndex(),
-		strategy:  newStrategy(algo, make([]string, 0)),
+		benchmark: benchmark.NewIndex(),
+		strategy:  strategy.New(algo, make([]string, 0)),
 		// Channels
-		processChan: make(chan *Tick),
-		tickChan:    make(chan *Tick),
+		processChan: make(chan *instrument.Tick),
+		tickChan:    make(chan *instrument.Tick),
 		errChan:     make(chan error),
 	}
 	return sim, nil
@@ -56,26 +67,26 @@ func NewSimulation(algo Algorithm, cfgFile string) (*Simulation, error) {
 type Simulation struct {
 	sync.RWMutex
 	oms         *OMS
-	config      Config
-	port        *Portfolio
+	config      config.Config
+	port        *portfolio.Portfolio
 	prfmLog     *PrfmLog
-	benchmark   *Index
-	strategy    Strategy
-	processChan chan *Tick
-	tickChan    chan *Tick
+	benchmark   *benchmark.Index
+	strategy    strategy.Strategy
+	processChan chan *instrument.Tick
+	tickChan    chan *instrument.Tick
 	errChan     chan error
 }
 
 // Run acts as the simulation's primary pipeline function; directing everything to where it needs to go.
 func (sim *Simulation) Run() error {
 	log.Println("Starting sim...")
-	if sim.strategy.algorithm == nil {
+	if sim.strategy.Algorithm == nil {
 		log.Fatal("Algorithm needs to be implemented by end-user")
 	}
 
 	done := make(chan struct{})
 	go func() {
-		cachedTicks := make([]*Tick, 0)
+		cachedTicks := make([]*instrument.Tick, 0)
 
 		for sim.tickChan != nil {
 			tick, ok := <-sim.tickChan
@@ -118,14 +129,14 @@ func (sim *Simulation) Run() error {
 	go worker.run(sim.tickChan, file)
 
 	<-done
-	log.Println(len(sim.prfmLog.closedPositions))
-	log.Println(len(sim.prfmLog.closedOrders))
-	getResults(sim.prfmLog.closedPositions, sim.benchmark.Securities, sim.config.Simulation.OutFmt)
+	log.Println(len(sim.prfmLog.ClosedHoldings))
+	log.Println(len(sim.prfmLog.ClosedOrders))
+	output.GetResults(sim.prfmLog.ClosedHoldings, sim.benchmark.Securities, sim.config.Simulation.OutFmt)
 
 	return nil
 }
 
-func fileInfo(cfg Config) (string, time.Time) {
+func fileInfo(cfg config.Config) (string, time.Time) {
 	fileGlob, err := filepath.Glob(cfg.File.Glob)
 	if err != nil || len(fileGlob) == 0 {
 		// return ErrInvalidFileGlob
@@ -142,10 +153,10 @@ func fileInfo(cfg Config) (string, time.Time) {
 	return file, filedate
 }
 
-func (sim *Simulation) updateBenchmark(tick Tick) error {
+func (sim *Simulation) updateBenchmark(tick instrument.Tick) error {
 	// Update benchmark metrics
 	if err := sim.benchmark.UpdateMetrics(tick); err != nil {
-		if err == ErrNoSecurityExists {
+		if err == benchmark.ErrNoSecurityExists {
 			sim.benchmark.AddNew(tick)
 		} else {
 			return err
@@ -153,9 +164,9 @@ func (sim *Simulation) updateBenchmark(tick Tick) error {
 	}
 	return nil
 }
-func (sim *Simulation) buyOrderCheck(tick Tick) (*Order, Amount, error) {
+func (sim *Simulation) buyOrderCheck(tick instrument.Tick) (*order.Order, utils.Amount, error) {
 	// Add entry order if it meets valid order logic
-	newOrder, err := sim.strategy.checkEntryLogic(sim.port, tick)
+	newOrder, err := sim.strategy.CheckEntryLogic(sim.port, tick)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -165,9 +176,9 @@ func (sim *Simulation) buyOrderCheck(tick Tick) (*Order, Amount, error) {
 	}
 	return newOrder, txAmount, nil
 }
-func (sim *Simulation) addToPortfolio(order *Order, txAmount Amount) error {
+func (sim *Simulation) addToPortfolio(order *order.Order, txAmount utils.Amount) error {
 	// create new position from order
-	newPos := order.toPosition()
+	newPos := order.ToPosition()
 	// add new position (holding) and change in cash from order to portfolio
 	if err := sim.port.AddHolding(newPos, txAmount); err != nil {
 		return err
@@ -175,7 +186,7 @@ func (sim *Simulation) addToPortfolio(order *Order, txAmount Amount) error {
 	return nil
 }
 
-func (sim *Simulation) sellOrderCheck(tick *Tick) error {
+func (sim *Simulation) sellOrderCheck(tick *instrument.Tick) error {
 	// Check if open order with same ticker exists
 	matchedOrders, err := sim.oms.existsInOrders(tick.Ticker)
 	if len(matchedOrders) > 0 {
@@ -187,7 +198,7 @@ func (sim *Simulation) sellOrderCheck(tick *Tick) error {
 	}
 	for i := range matchedOrders {
 
-		newClosedOrder, err := sim.strategy.checkExitLogic(sim.port, matchedOrders[i], *tick)
+		newClosedOrder, err := sim.strategy.CheckExitLogic(sim.port, matchedOrders[i], *tick)
 		if err == nil {
 			sim.createSale(newClosedOrder, tick)
 		}
@@ -195,14 +206,14 @@ func (sim *Simulation) sellOrderCheck(tick *Tick) error {
 	return nil
 }
 
-func (sim *Simulation) createSale(newClosedOrder *Order, tick *Tick) error {
-	txAmount, closedPositions, _ := sim.oms.TransactSell(
+func (sim *Simulation) createSale(newClosedOrder *order.Order, tick *instrument.Tick) error {
+	txAmount, ClosedHoldings, _ := sim.oms.TransactSell(
 		newClosedOrder,
 		sim.config.Simulation.Costmethod,
 		sim.port)
 
 	// Update held Cash amount in portfolio
-	sim.port.applyDelta(txAmount)
+	sim.port.ApplyDelta(txAmount)
 
 	// // Delete holding slice from portfolio active holdings map if now empty
 	// if deleteSlice {
@@ -212,19 +223,19 @@ func (sim *Simulation) createSale(newClosedOrder *Order, tick *Tick) error {
 	// }
 
 	// Add closed positions (holdings) to performance log
-	for _, closedPos := range closedPositions {
-		sim.prfmLog.addPosition(closedPos)
+	for _, closedPos := range ClosedHoldings {
+		sim.prfmLog.AddHolding(closedPos)
 	}
 
 	// Add closed order to performance log
-	if err := sim.prfmLog.addOrder(newClosedOrder); err != nil {
+	if err := sim.prfmLog.AddOrder(newClosedOrder); err != nil {
 		return err
 	}
 	return nil
 }
 
 // Process simulates tick data going through our simulation pipeline
-func (sim *Simulation) process(tick *Tick) error {
+func (sim *Simulation) process(tick *instrument.Tick) error {
 
 	log.Println("Updating benchmark")
 	if err := sim.updateBenchmark(*tick); err != nil {
@@ -232,7 +243,7 @@ func (sim *Simulation) process(tick *Tick) error {
 	}
 	log.Println("Checking if possible buy order")
 	newOrder, txAmount, err := sim.buyOrderCheck(*tick)
-	if err != nil && err != ErrOrderNotValid {
+	if err != nil && err != trading.ErrOrderNotValid {
 		log.Fatal(err)
 	}
 	if newOrder != nil {
@@ -265,7 +276,7 @@ func newWorker(cols colConfig) *worker {
 	return worker
 }
 
-func (worker *worker) run(outChan chan<- *Tick, r io.ReadSeeker) {
+func (worker *worker) run(outChan chan<- *instrument.Tick, r io.ReadSeeker) {
 	var lineCount int
 	done := make(chan struct{}, 2)
 
@@ -283,7 +294,7 @@ func (worker *worker) run(outChan chan<- *Tick, r io.ReadSeeker) {
 	<-done
 }
 
-func (worker *worker) send(outChan chan<- *Tick, done chan struct{}) {
+func (worker *worker) send(outChan chan<- *instrument.Tick, done chan struct{}) {
 	for {
 		data, ok := <-worker.dataChan
 		if !ok {
@@ -327,11 +338,11 @@ func (worker *worker) produce(done chan struct{}, r io.ReadSeeker) {
 	done <- struct{}{}
 }
 
-func (worker *worker) consume(record []string) (*Tick, error) {
+func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	var loadErr, parseErr error
-	var tick *Tick
+	var tick *instrument.Tick
 
-	tick = new(Tick)
+	tick = new(instrument.Tick)
 	tick.Ticker = record[worker.colCfg.tick]
 
 	bid, bidErr := strconv.ParseFloat(record[worker.colCfg.bid], 64)
@@ -341,13 +352,13 @@ func (worker *worker) consume(record []string) (*Tick, error) {
 	if bidErr != nil {
 		loadErr = errors.New("bid Price could not be parsed")
 	}
-	tick.Bid = FloatAmount(bid)
+	tick.Bid = utils.FloatAmount(bid)
 
 	bidSz, bidSzErr := strconv.ParseFloat(record[worker.colCfg.bidSz], 64)
 	if bidSzErr != nil {
 		loadErr = errors.New("bid Size could not be parsed")
 	}
-	tick.BidSize = Amount(bidSz)
+	tick.BidSize = utils.Amount(bidSz)
 
 	ask, askErr := strconv.ParseFloat(record[worker.colCfg.ask], 64)
 	if ask == 0 {
@@ -356,13 +367,13 @@ func (worker *worker) consume(record []string) (*Tick, error) {
 	if askErr != nil {
 		loadErr = errors.New("ask Price could not be parsed")
 	}
-	tick.Ask = FloatAmount(ask)
+	tick.Ask = utils.FloatAmount(ask)
 
 	askSz, askSzErr := strconv.ParseFloat(record[worker.colCfg.askSz], 64)
 	if askSzErr != nil {
 		loadErr = errors.New("ask Size could not be parsed")
 	}
-	tick.AskSize = Amount(askSz)
+	tick.AskSize = utils.Amount(askSz)
 
 	tickDuration, timeErr := time.ParseDuration(record[worker.colCfg.tStamp] + worker.colCfg.timeUnit)
 

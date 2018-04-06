@@ -1,28 +1,32 @@
-package porttools
+package portfolio
 
 import (
 	"testing"
 	"time"
+
+	"github.com/jakeschurch/porttools/collection/portfolio"
+	"github.com/jakeschurch/porttools/instrument/holding"
+	"github.com/jakeschurch/porttools/utils"
 )
 
 var (
-	startingCash = FloatAmount(10000.00)
-	port         = NewPortfolio(startingCash)
-	newHolding   = new(Position)
+	startingCash = utils.FloatAmount(10000.00)
+	port         = portfolio.NewPortfolio(startingCash)
+	newHolding   = new(holding.Holding)
 	txAmount     Amount
 )
 
 func remock() {
-	startingCash = FloatAmount(10000.00)
+	startingCash = utils.FloatAmount(10000.00)
 	port = NewPortfolio(startingCash)
 
 	// Setup new holding
-	ask := FloatAmount(50.00)
-	bid := FloatAmount(49.50)
+	ask := utils.FloatAmount(50.00)
+	bid := utils.FloatAmount(49.50)
 	bidDatedMetric := &datedMetric{Amount: bid, Date: time.Time{}}
 	askDatedMetric := &datedMetric{Amount: ask, Date: time.Time{}}
 
-	newHolding = &Position{
+	newHolding = &holding.Holding{
 		Ticker:   "GOOGL",
 		Volume:   10.00,
 		NumTicks: 1,
@@ -36,7 +40,7 @@ func remock() {
 func TestPortfolio_applyDelta(t *testing.T) {
 	remock()
 
-	endCash := DivideAmt(startingCash, FloatAmount(2.00))
+	endCash := DivideAmt(startingCash, utils.FloatAmount(2.00))
 	port.applyDelta(-endCash)
 
 	if port.cash != endCash {

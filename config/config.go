@@ -1,16 +1,19 @@
-package porttools
+package config
 
 import (
-	"encoding/json" // will be used later
+	"encoding/json"
 	"log"
 	"os"
 	"time"
+
+	"github.com/jakeschurch/porttools/output"
+	"github.com/jakeschurch/porttools/utils"
 )
 
 // NOTE: In a contemporary electronic market (circa 2009), low latency trade processing time was qualified as under 10 milliseconds, and ultra-low latency as under 1 millisecond
 
-// LoadConfig uses a Json File to populate details regarding configuration.
-func loadConfig(filename string) (*Config, error) {
+// Load returns a config item.
+func Load(filename string) (*Config, error) {
 	var config *Config
 
 	file, fileErr := os.Open(filename)
@@ -53,12 +56,12 @@ type Config struct {
 	} `json:"backtest"`
 
 	Simulation struct {
-		StartDate  string        `json:"startDate"`
-		EndDate    string        `json:"endDate"`
-		BarRate    time.Duration `json:"barRate"`
-		Costmethod CostMethod    `json:"costmethod"`
+		StartDate  string           `json:"startDate"`
+		EndDate    string           `json:"endDate"`
+		BarRate    time.Duration    `json:"barRate"`
+		Costmethod utils.CostMethod `json:"costmethod"`
 		// TODO: REVIEW good idea to use go generate for output format and other consts?
-		OutFmt OutputFmt `json:"outFmt"`
+		OutFmt output.Fmt `json:"outFmt"`
 		//  IngestRate measures how many bars to skip
 		// IngestRate BarDuration `json:"ingestRate"`
 	} `json:"simulation"`
