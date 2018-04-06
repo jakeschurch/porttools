@@ -1,41 +1,5 @@
 package porttools
 
-// selection sort for positions.
-func selectionSort(A []*Position) []*Position {
-	for i := 0; i < len(A)-1; i++ {
-		min := i
-		for j := i + 1; j < len(A); j++ {
-			if A[j].Ticker < A[min].Ticker {
-				min = j
-			}
-		}
-		key := A[i]
-		A[i] = A[min]
-		A[min] = key
-	}
-	return A
-}
-
-func filter(positions []Position, key string) []Position {
-	filtered := make([]Position, 0)
-
-	for _, position := range positions {
-		if position.Ticker == key {
-			filtered = append(filtered, position)
-		}
-	}
-	return filtered
-}
-
-func findKey(A []string, toFind string) bool {
-	for _, key := range A {
-		if key == toFind {
-			return true
-		}
-	}
-	return false
-}
-
 // Queue is an implementation of a FIFO container type.
 type Queue struct {
 	len    int
