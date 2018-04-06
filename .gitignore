@@ -15,3 +15,17 @@
 .glide/
 
 TODO\.md
+
+\.vscode/
+
+*.swp
+
+example/out\.png
+
+out\.png
+
+example/debug
+
+example/simOutput\.csv
+
+*.csv
