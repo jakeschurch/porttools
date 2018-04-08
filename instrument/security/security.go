@@ -1,8 +1,6 @@
 package security
 
 import (
-	"sync"
-
 	"github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/utils"
 )
@@ -11,7 +9,6 @@ import (
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embedded into an Index or Benchmark.
 type Security struct {
-	sync.Mutex
 	Ticker              string
 	NumTicks            uint
 	BuyPrice, SellPrice *utils.DatedMetric

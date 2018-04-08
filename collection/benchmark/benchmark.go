@@ -20,10 +20,7 @@ var (
 func NewIndex() *Index {
 	index := Index{
 		Securities: make(map[string]*security.Security),
-		tickChan:   make(chan instrument.Tick),
-		errChan:    make(chan error),
 	}
-	go index.mux()
 	return &index
 }
 
@@ -32,47 +29,30 @@ func NewIndex() *Index {
 type Index struct {
 	sync.RWMutex
 	Securities map[string]*security.Security
-	tickChan   chan instrument.Tick
-	errChan    chan error
-}
-
-func (index *Index) mux() {
-	var tick instrument.Tick
-	for {
-		select {
-		case tick = <-index.tickChan:
-			index.errChan <- index.updateMetrics(tick)
-		}
-	}
 }
 
 // AddNew adds a new security to an Index's Securities map.
 func (index *Index) AddNew(tick instrument.Tick) error {
-	index.Lock()
+	index.RLock()
 	if _, exists := index.Securities[tick.Ticker]; exists {
+		index.RUnlock()
 		return ErrSecurityExists
 	}
+	index.RUnlock()
 	index.Securities[tick.Ticker] = security.New(tick)
-	index.Unlock()
-
+	index.Securities[tick.Ticker].UpdateMetrics(tick)
 	return nil
-}
-
-// UpdateMetrics ...
-func (index *Index) UpdateMetrics(tick instrument.Tick) error {
-	index.tickChan <- tick
-	return <-index.errChan
 }
 
 // UpdateMetrics passes instrument.Tick to appropriate Security in securities map.
 // Returns error if security not found in map.
-func (index *Index) updateMetrics(tick instrument.Tick) error {
+func (index *Index) UpdateMetrics(tick instrument.Tick) error {
 	index.RLock()
-	security, exists := index.Securities[tick.Ticker]
+	_, exists := index.Securities[tick.Ticker]
 	index.RUnlock()
 	if !exists {
 		return ErrNoSecurityExists
 	}
-	security.UpdateMetrics(tick)
+	index.Securities[tick.Ticker].UpdateMetrics(tick)
 	return nil
 }

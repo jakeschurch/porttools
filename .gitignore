@@ -29,3 +29,9 @@ example/debug
 example/simOutput\.csv
 
 *.csv
+
+docs/
+
+_docs/
+
+example/

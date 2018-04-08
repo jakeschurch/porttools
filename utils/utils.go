@@ -42,17 +42,12 @@ func (amt Amount) ToCurrency() string {
 
 	b := bytes.NewBufferString(str)
 
-	numCommas := (b.Len() - 2) / 3
-
 	j := 0
-	out := make([]byte, b.Len()+numCommas+3) // 2 extra placeholders for a `$` and a `.`
+	out := make([]byte, b.Len()+2) // 2 extra placeholders for a `$` and a `.`
 
 	for i, v := range b.Bytes() {
 		if i == (b.Len() - 2) {
 			out[j], _ = bytes.NewBufferString(".").ReadByte()
-			j++
-		} else if (i-1)%3 == 0 && b.Len() > 4 {
-			out[j], _ = bytes.NewBufferString(",").ReadByte()
 			j++
 		} else if i == 0 {
 			out[j], _ = bytes.NewBufferString("$").ReadByte()
@@ -81,7 +76,7 @@ func (amt Amount) ToVolume() string {
 		if i == (b.Len() - 2) {
 			out[j], _ = bytes.NewBufferString(".").ReadByte()
 			j++
-		} else if (i-1)%3 == 0 {
+		} else if (i-1)%3 == 0 && b.Len() > 4 {
 			out[j], _ = bytes.NewBufferString(",").ReadByte()
 			j++
 		}
@@ -111,7 +106,8 @@ func (amt Amount) ToPercent() string {
 		out[j] = v
 		j++
 	}
-	out[j], _ = bytes.NewBufferString("%").ReadByte()
+	percentSign, _ := bytes.NewBufferString("%").ReadByte()
+	out = append(out, percentSign)
 	return string(out)
 }
 

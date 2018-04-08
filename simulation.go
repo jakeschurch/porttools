@@ -131,7 +131,7 @@ func (sim *Simulation) Run() error {
 	<-done
 	log.Println(len(sim.prfmLog.ClosedHoldings))
 	log.Println(len(sim.prfmLog.ClosedOrders))
-	output.GetResults(sim.prfmLog.ClosedHoldings, sim.benchmark.Securities, sim.config.Simulation.OutFmt)
+	output.GetResults(sim.prfmLog.ClosedHoldings, sim.benchmark, sim.config.Simulation.OutFmt)
 
 	return nil
 }
@@ -237,17 +237,17 @@ func (sim *Simulation) createSale(newClosedOrder *order.Order, tick *instrument.
 // Process simulates tick data going through our simulation pipeline
 func (sim *Simulation) process(tick *instrument.Tick) error {
 
-	log.Println("Updating benchmark")
+	// log.Println("Updating benchmark")
 	if err := sim.updateBenchmark(*tick); err != nil {
 		log.Fatal(err)
 	}
-	log.Println("Checking if possible buy order")
+	// log.Println("Checking if possible buy order")
 	newOrder, txAmount, err := sim.buyOrderCheck(*tick)
 	if err != nil && err != trading.ErrOrderNotValid {
 		log.Fatal(err)
 	}
 	if newOrder != nil {
-		log.Println("Adding to portfolio")
+		// log.Println("Adding to portfolio")
 		if err := sim.addToPortfolio(newOrder, txAmount); err != nil {
 			log.Fatal(err)
 		}

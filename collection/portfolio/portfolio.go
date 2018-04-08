@@ -2,7 +2,6 @@ package portfolio
 
 import (
 	"errors"
-	"log"
 	"sync"
 
 	"github.com/jakeschurch/porttools/collection"
@@ -59,7 +58,7 @@ func (port *Portfolio) UpdateMetrics(tick instrument.Tick) error {
 func (port *Portfolio) AddHolding(newHolding *holding.Holding, deltaCash utils.Amount) error {
 	port.Lock()
 	if _, ok := port.Active[newHolding.Ticker]; !ok {
-		log.Printf("Created new slice for %s", newHolding.Ticker)
+		// log.Printf("Created new slice for %s", newHolding.Ticker)
 		port.Active[newHolding.Ticker] = collection.NewHoldingSlice()
 	}
 	err := port.Active[newHolding.Ticker].AddNew(newHolding)

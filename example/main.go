@@ -1,7 +1,11 @@
 package main
 
 import (
+	"flag"
 	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/jakeschurch/porttools"
 	"github.com/jakeschurch/porttools/collection/portfolio"
@@ -57,7 +61,19 @@ func (algo algo) ValidOrder(port *portfolio.Portfolio, order *order.Order) bool 
 	return true
 }
 
+var cpuprofile = flag.String("cpuprofile", "cpu.prof", "write cpu profile to file")
+var memprofile = flag.String("memprofile", "mem.prof", "write memory profile to `file`")
+
 func main() {
+	flag.Parse()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	myAlgo := newAlgo()
 	cfgFile := "/home/jake/go/src/github.com/jakeschurch/porttools/example/exampleConfig.json"
@@ -66,4 +82,16 @@ func main() {
 		log.Fatal("Error in Simulation: ", simErr)
 	}
 	sim.Run()
+
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+		f.Close()
+	}
 }

@@ -1,7 +1,6 @@
 package porttools
 
 import (
-	"log"
 	"sync"
 
 	"github.com/jakeschurch/porttools/collection/portfolio"
@@ -59,7 +58,7 @@ func (oms *OMS) TransactSell(order *order.Order, costMethod utils.CostMethod, po
 
 		pos, err = port.Active[order.Ticker].Peek(costMethod)
 		if err != nil {
-			log.Println(err)
+			// log.Println(err)
 			return transactionAmount, closedHoldings, err
 		}
 		switch pos.Volume >= order.Volume {

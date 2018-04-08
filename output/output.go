@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/jakeschurch/porttools/collection/benchmark"
+
 	"github.com/jakeschurch/porttools/instrument/holding"
 	"github.com/jakeschurch/porttools/instrument/security"
 	"github.com/jakeschurch/porttools/utils"
@@ -84,7 +86,6 @@ func resultsToCSV(results []result) (ok bool) {
 	w := csv.NewWriter(outFile)
 
 	for _, row := range output {
-		log.Println(row)
 		w.Write(row)
 	}
 	w.Flush()
@@ -140,27 +141,28 @@ func (result *result) averageize() {
 }
 
 // GetResults ...TODO
-func GetResults(closedholdings []holding.Holding, benchmarkMap map[string]*security.Security, outputFormat Fmt) {
+func GetResults(closedholdings []holding.Holding, benchmark *benchmark.Index, outputFormat Fmt) {
 	var results []result
 
 	// create slice of all holding keys
 	holdingKeys := make([]string, 0)
-
+	benchmark.RLock()
 	for _, holding := range closedholdings {
 
 		if !findKey(holdingKeys, holding.Ticker) {
 			holdingKeys = append(holdingKeys, holding.Ticker)
 		}
+		for _, key := range holdingKeys {
+			security := benchmark.Securities[key]
+			filtered := filter(closedholdings, key)
+			results = append(results, createResult(filtered, security))
+		}
 	}
-	for _, key := range holdingKeys {
-		filtered := filter(closedholdings, key)
-		results = append(results, createResult(filtered, benchmarkMap[key]))
-	}
-
 	log.Println("Outputting results: ")
 	switch outputFormat {
 	case CSV:
 		resultsToCSV(results)
+
 	}
 }
 
@@ -187,18 +189,18 @@ func createResult(holdings []holding.Holding, security *security.Security) resul
 	var holdingResult result
 
 	// loop through and update metrics accordingly
-	for index, holding := range holdings {
-		if index == 0 {
-			holdingResult = newResult(holdings[index])
+	for i := 0; i < len(holdings); i++ {
+		if i == 0 {
+			holdingResult = newResult(holdings[i])
 		}
-		holdingResult.update(holding)
+		holdingResult.update(holdings[i])
 	}
 	holdingResult.averageize()
 
-	if security == nil {
-		holdingResult.Alpha = utils.Amount(0)
-		return holdingResult
-	}
+	// if security == nil {
+	// 	holdingResult.Alpha = utils.Amount(0)
+	// 	return holdingResult
+	// }
 	// NOTE: this is NOT on an aggregate basis at the moment.
 	benchmarkReturn := utils.DivideAmt((security.LastAsk.Amount - security.BuyPrice.Amount), security.BuyPrice.Amount)
 	holdingResult.Alpha = holdingResult.PctReturn - benchmarkReturn
@@ -221,15 +223,15 @@ func selectionSort(A []*holding.Holding) []*holding.Holding {
 	return A
 }
 
-func filter(positions []holding.Holding, key string) []holding.Holding {
+func filter(positions *[]holding.Holding, key string) *[]holding.Holding {
 	filtered := make([]holding.Holding, 0)
 
-	for _, position := range positions {
+	for _, position := range *positions {
 		if position.Ticker == key {
 			filtered = append(filtered, position)
 		}
 	}
-	return filtered
+	return &filtered
 }
 
 func findKey(A []string, toFind string) bool {
