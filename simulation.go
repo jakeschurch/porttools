@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jakeschurch/porttools/collection/benchmark"
 	"github.com/jakeschurch/porttools/collection/portfolio"
 	"github.com/jakeschurch/porttools/config"
 	"github.com/jakeschurch/porttools/instrument"
@@ -20,9 +19,56 @@ import (
 	"github.com/jakeschurch/porttools/trading"
 	"github.com/jakeschurch/porttools/trading/order"
 	"github.com/jakeschurch/porttools/trading/strategy"
-	"github.com/jakeschurch/porttools/trading/strategy/algorithm"
 	"github.com/jakeschurch/porttools/utils"
 )
+
+var (
+	oms  *OMS
+	port     *portfolio.Portfolio 
+	prfmLog   *PrfmLog
+	benchmark *benchmark.Index
+)
+func init() {
+	oms       = NewOMS()
+	port      = portfolio.New()
+	prfmLog   = newPrfmLog()
+	benchmark = benchmark.NewIndex()
+}
+
+// Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
+type Algorithm interface {
+	EntryLogic(instrument.Tick, sim.Get(get...)) (*order.Order, bool)
+	ExitLogic(instrument.Tick, *order.Order) (*order.Order, bool)
+	ValidOrder(sim.Get(get...), *order.Order) bool
+}
+
+type get func() *interface{}
+
+// Get is a function that allows end-users to access private structs when implementing an algorithm.
+func (sim *Simulation) Get(gets get...) []*interface {
+	retrieved := make([]interface{}, 0)
+
+	for i := range funcs {
+		retrieved = append(retrieved, gets[i])
+	}
+	return retrieved
+}
+
+// Port returns the portfolio struct being used in the simulation.
+func (sim *Simulation) Port() *portfolio.Portfolio {
+	return port
+}
+
+// OMS returns the Order Management System being used in the simulation.
+func (sim *Simulation) OMS() *OMS {
+	return oms
+}
+
+
+// sim.PrfmLog()
+
+
+// IDEA: init statement to clear logic?
 
 var (
 	// ErrInvalidFileGlob indiciates that no files could be found from given glob
@@ -49,12 +95,9 @@ func NewSimulation(algo algorithm.Algorithm, cfgFile string) (*Simulation, error
 
 	startingCash := utils.FloatAmount(cfg.Backtest.StartCashAmt)
 	sim := &Simulation{
-		config:    *cfg,
-		oms:       NewOMS(),
-		port:      portfolio.New(startingCash),
-		prfmLog:   newPrfmLog(),
-		benchmark: benchmark.NewIndex(),
-		strategy:  strategy.New(algo, make([]string, 0)),
+		config: *cfg,
+
+		strategy: strategy.New(algo, make([]string, 0)),
 		// Channels
 		processChan: make(chan *instrument.Tick),
 		tickChan:    make(chan *instrument.Tick),

@@ -4,123 +4,33 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/jakeschurch/porttools/instrument/security"
+
 	"github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/instrument/holding"
 	"github.com/jakeschurch/porttools/utils"
 )
 
+// const (
+// 	SecurityType = "Security"
+// 	HoldingType  = "Holding"
+// )
+
 var (
+	// ErrKeyExists indicates that an index value already exists in the lookup cache
+	ErrKeyExists = errors.New("key already exists in LookupCache")
 
 	// ErrSliceExists indicates that a slice already exists
-	ErrSliceExists = errors.New("Slice with ticker exists")
+	ErrSliceExists = errors.New("slice with ticker exists")
 
-	// ErrNoSliceExists indicates that a slice already exists
-	ErrNoSliceExists = errors.New("Slice with ticker does not exist")
+	ErrListNotEmpty = errors.New("linked holding list is still populated with at least one element")
+
+	// ErrNoListExists indicates that a slice already exists
+	ErrNoListExists = errors.New("list with ticker does not exist")
 
 	// ErrNegativeVolume indicates negative position volume balance
-	ErrNegativeVolume = errors.New("Position Volume is less than 0")
+	ErrNegativeVolume = errors.New("position volume is less than 0")
 )
-
-// NewHoldingSlice returns a new holding slice.
-func NewHoldingSlice() *HoldingSlice {
-	holdingSlice := &HoldingSlice{
-		len:         0,
-		totalVolume: 0,
-		holdings:    make([]*holding.Holding, 0),
-	}
-	return holdingSlice
-}
-
-// HoldingSlice is a slice that holds pointer values to holding.Holding type variables
-type HoldingSlice struct {
-	sync.RWMutex
-	len         int
-	holdings    []*holding.Holding
-	totalVolume utils.Amount
-}
-
-// AddNew adds a new holding to the holdings slice.
-func (slice *HoldingSlice) AddNew(newHolding *holding.Holding) error {
-	// slice.Lock()
-	slice.holdings = append(slice.holdings, newHolding)
-	slice.len++
-	// slice.Unlock()
-
-	return slice.ApplyDelta(newHolding.Volume)
-}
-
-// UpdateMetrics update holdings data based on most recent tick data.
-func (slice *HoldingSlice) UpdateMetrics(tick instrument.Tick) error {
-	slice.Lock()
-	if slice.len == 0 || len(slice.holdings) == 0 {
-		slice.Unlock()
-		return utils.ErrEmptySlice
-	}
-	for _, holding := range slice.holdings {
-		holding.UpdateMetrics(tick)
-	}
-	slice.Unlock()
-	return nil
-}
-
-// ApplyDelta ... TODO
-func (slice *HoldingSlice) ApplyDelta(amt utils.Amount) error {
-	slice.Lock()
-	newVolume := slice.totalVolume + amt
-	if newVolume < 0 {
-		slice.Unlock()
-		return ErrNegativeVolume
-	}
-	slice.totalVolume = newVolume
-	slice.Unlock()
-	return nil
-}
-
-// Push adds position to position slice,
-// updates total Volume of all positions in slice.
-func (slice *HoldingSlice) Push(pos *holding.Holding) error {
-	slice.holdings = append(slice.holdings, pos)
-	return slice.ApplyDelta(pos.Volume)
-}
-
-// Pop removes element from position slice.
-// If fifo is passed as costmethod, the position at index 0 will be popped.
-// Otherwise if lifo is passed as costmethod, the position at the last index will be popped.
-func (slice *HoldingSlice) Pop(costMethod utils.CostMethod) (holding.Holding, error) {
-	var pos holding.Holding
-
-	slice.Lock()
-
-	switch costMethod {
-	case utils.Fifo:
-		pos, slice.holdings = *slice.holdings[0], slice.holdings[1:]
-	case utils.Lifo:
-		pos, slice.holdings = *slice.holdings[slice.len], slice.holdings[:slice.len-1]
-	}
-	slice.len--
-
-	slice.Unlock()
-	return pos, nil
-}
-
-// Peek returns the element that would have been Pop-ed from a holding slice.
-func (slice *HoldingSlice) Peek(costMethod utils.CostMethod) (*holding.Holding, error) {
-	var holding *holding.Holding
-
-	if slice.len == 0 || len(slice.holdings) == 0 {
-		return nil, utils.ErrEmptySlice
-	}
-
-	slice.RLock()
-	switch costMethod {
-	case utils.Fifo:
-		holding = slice.holdings[0]
-	case utils.Lifo:
-		holding = slice.holdings[slice.len]
-	}
-	slice.RUnlock()
-	return holding, nil
-}
 
 // LookupCache acts as read-write cache to indicate index positions of holdings in a slice.
 type LookupCache struct {
@@ -140,7 +50,7 @@ func NewLookupCache() *LookupCache {
 }
 
 // Delete removes cached key-value pair, allocates index to openSlots.
-func Delete(l *LookupCache, key string) {
+func Delete(l *LookupCache, key string) int16 {
 	l.mu.Lock()
 	value := Get(l, key)
 	delete(l.items, key)
@@ -149,6 +59,7 @@ func Delete(l *LookupCache, key string) {
 		l.openSlots = append(l.openSlots, value)
 	}
 	l.mu.Unlock()
+	return value
 }
 
 // Get queries for the index (value) loaded, returns -1 if key does not exist.
@@ -163,14 +74,13 @@ func Get(l *LookupCache, key string) int16 {
 	return value
 }
 
-// Put assigns a value to a new key.
+// Put assigns a value to a new key, and returns the value of the newly-assigned index..
 // If any pre-allocated slots are available, it will be assigned that slot.
 // If not, it will get a new, unassigned value.
-func Put(l *LookupCache, key string) (err error) {
-	var value int16
+func Put(l *LookupCache, key string) (value int16, err error) {
 
-	if Get(l, key) != -1 {
-		return errors.New("key already exists in LookupCache")
+	if value = Get(l, key); value != -1 {
+		return value, ErrKeyExists
 	}
 
 	l.mu.Lock()
@@ -185,24 +95,25 @@ func Put(l *LookupCache, key string) (err error) {
 	l.items[key] = value
 	l.mu.Unlock()
 
-	return nil
+	return value, nil
 }
 
-// LinkedHoldingList is a collection of holding elements,
+// LinkedList is a collection of holding elements,
 // as well as aggregate metrics on the collection of holdings.
-type LinkedHoldingList struct {
+type LinkedList struct {
 	*instrument.Asset
-	mu   sync.RWMutex
-	head *LinkedHoldingNode
-	tail *LinkedHoldingNode
+	mu       sync.RWMutex
+	head     *LinkedNode
+	tail     *LinkedNode
+	nodeType string
 }
 
-// NewLinkedHoldingList instantiates a new struct of type LinkedHoldingList.
-func NewLinkedHoldingList(h *holding.Holding, t *instrument.Tick) *LinkedHoldingList {
-	l := &LinkedHoldingList{
-		Asset: instrument.NewAsset(t.Ticker, t.Bid, t.Ask, h.Volume, t.Timestamp),
-		head:  new(LinkedHoldingNode),
-		tail:  newLinkedHoldingNode(h),
+// NewLinkedList instantiates a new struct of type LinkedList.
+func NewLinkedList(h *holding.Holding, t instrument.Tick) *LinkedList {
+	l := &LinkedList{
+		Asset: instrument.NewAsset(t.Ticker, t.Bid, t.Ask, h.Volume(0), t.Timestamp),
+		head:  new(LinkedNode),
+		tail:  NewLinkedNode(h),
 	}
 	l.head.next = l.tail
 	l.tail.prev = l.head
@@ -211,8 +122,13 @@ func NewLinkedHoldingList(h *holding.Holding, t *instrument.Tick) *LinkedHolding
 }
 
 // Push inserts a new element
-func (l *LinkedHoldingList) Push(node *LinkedHoldingNode) {
-	var last *LinkedHoldingNode
+func (l *LinkedList) Push(f instrument.Financial, t instrument.Tick) {
+	var last *LinkedNode
+
+	// Update LinkedList Aggregates
+	l.Update(t)
+	l.Volume(f.Volume(0))
+	node := NewLinkedNode(f)
 
 	switch l.head.next == nil {
 	case true:
@@ -227,42 +143,185 @@ func (l *LinkedHoldingList) Push(node *LinkedHoldingNode) {
 
 // Pop returns last element in linkedList.
 // Returns nil if no elements in list besides head and tail.
-func (l *LinkedHoldingList) Pop() *LinkedHoldingNode {
+func (l *LinkedList) Pop(costMethod utils.CostMethod) *LinkedNode {
+	if costMethod == utils.Lifo {
+		return l.pop()
+	}
+	return l.PopFront()
+}
+
+// Pop returns last element in linkedList.
+// Returns nil if no elements in list besides head and tail.
+func (l *LinkedList) pop() *LinkedNode {
 	last := l.tail
 	if last == l.head {
 		return nil // cannot pop head
 	}
 	l.tail = last.prev
 	l.tail.next = nil
+
+	l.Volume(-last.Volume(0))
 	return last
 }
 
 // PopFront ...TODO
-func (l *LinkedHoldingList) PopFront() {
+func (l *LinkedList) PopFront() *LinkedNode {
+	var first *LinkedNode
 
+	if first = l.head.next; first == nil {
+		return nil
+	}
+
+	l.head.next = first.next
+	first.next.prev = l.head
+
+	l.mu.Lock()
+	l.Volume(-first.Volume(0))
+	l.mu.Unlock()
+
+	return first
 }
 
 // Peek ...TODO
-func (l *LinkedHoldingList) Peek() {
-
+func (l *LinkedList) Peek() {
 }
 
 // PeekFront ...TODO
-func (l *LinkedHoldingList) PeekFront() {
-
+func (l *LinkedList) PeekFront() *LinkedNode {
+	return l.head.next
 }
 
-// LinkedHoldingNode is the linked list node implementation of a holding struct.
-type LinkedHoldingNode struct {
-	*holding.Holding
-	next *LinkedHoldingNode
-	prev *LinkedHoldingNode
+// LinkedNode is the linked list node implementation of a holding struct.
+type LinkedNode struct {
+	instrument.Financial
+	next *LinkedNode
+	prev *LinkedNode
 }
 
-func newLinkedHoldingNode(h *holding.Holding) *LinkedHoldingNode {
-	return &LinkedHoldingNode{
-		Holding: h,
-		next:    nil,
-		prev:    nil,
+func (node *LinkedNode) GetUnderlying() instrument.Financial {
+	switch node.Financial.(type) {
+	case holding.Holding:
+		return holding.Holding(node.Financial.(holding.Holding))
+
+	case security.Security:
+		return security.Security(node.Financial.(security.Security))
 	}
+	return nil
+}
+
+func (node *LinkedNode) Next() *LinkedNode {
+	return node.next
+}
+
+func NewLinkedNode(f instrument.Financial) *LinkedNode {
+	return &LinkedNode{
+		Financial: f,
+		next:      nil,
+		prev:      nil,
+	}
+}
+
+// HoldingList is an implementation of a holding collection.
+type HoldingList struct {
+	cache *LookupCache
+	mu    sync.RWMutex
+	list  []*LinkedList
+	len   int16
+}
+
+// NewHoldingList returns a new struct of type HoldingList.
+func NewHoldingList() *HoldingList {
+	return &HoldingList{
+		cache: NewLookupCache(),
+		list:  make([]*LinkedList, 0),
+		len:   0,
+	}
+}
+
+func (l *HoldingList) Update(t instrument.Tick) error {
+	var index int16
+
+	if index = Get(l.cache, t.Ticker); index == -1 {
+		return ErrNoListExists
+	}
+	return l.list[index].Update(t)
+}
+
+// Get method for type HoldingList returns a LinkedList and error types.
+func (l *HoldingList) Get(key string) (*LinkedList, error) {
+	var index int16
+	var linkedList *LinkedList
+
+	if index = Get(l.cache, key); index != -1 {
+		l.mu.RLock()
+		linkedList = l.list[index]
+		l.mu.RUnlock()
+		return linkedList, nil
+	}
+	return nil, ErrNoListExists
+}
+
+func (l *HoldingList) GetByIndex(index int16) *LinkedList {
+	l.mu.RLock()
+	linkedList := l.list[index]
+	l.mu.RUnlock()
+
+	return linkedList
+}
+
+// Insert adds a new node to a HoldingList's linked list.
+func (l *HoldingList) Insert(h *holding.Holding, t instrument.Tick) (err error) {
+	var new bool
+	var index int16
+
+	if index, err = Put(l.cache, h.Ticker); err != ErrKeyExists {
+		new = true
+	}
+
+	// see if we can place new holding in open slot
+	// ... or if we have to allocate new space.
+	l.mu.Lock()
+	if index > l.len {
+		l.list = append(make([]*LinkedList, (index+1)*2), l.list...)
+		l.len = (index + 1) * 2
+	} else {
+		l.len++
+	}
+	l.mu.Unlock()
+
+	// Check to see if we need to allocate a new Linked list
+	// ... or if we can just push new node.
+	switch new {
+	case true:
+		l.list[index] = NewLinkedList(h, t)
+	case false:
+		l.list[index].Push(NewLinkedNode(h), t)
+	}
+	return nil
+}
+
+// Delete ... TODO
+func (l *HoldingList) Delete(key string) error {
+	var index int16
+	var linkedHoldings *LinkedList
+
+	if index = Get(l.cache, key); index == -1 {
+		return ErrNoListExists
+	}
+
+	l.mu.Lock()
+	if linkedHoldings = l.list[index]; linkedHoldings.tail != nil {
+		return ErrListNotEmpty
+	}
+	l.list[index] = nil
+	l.mu.Unlock()
+
+	Delete(l.cache, key)
+
+	return nil
+}
+
+// Items returns items map of a lookup cache.
+func (l *HoldingList) Items() map[string]int16 {
+	return l.cache.items
 }

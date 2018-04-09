@@ -3,7 +3,6 @@ package order
 import (
 	"time"
 
-	"github.com/jakeschurch/porttools/instrument/holding"
 	"github.com/jakeschurch/porttools/utils"
 )
 
@@ -34,21 +33,21 @@ func New(buy bool, ticker string, bid, ask, volume utils.Amount, datetime time.T
 	}
 }
 
-func (order *Order) ToPosition() *holding.Holding {
-	bid := &utils.DatedMetric{Amount: order.Bid, Date: order.Datetime}
-	ask := &utils.DatedMetric{Amount: order.Ask, Date: order.Datetime}
+// func (order *Order) ToPosition() *holding.Holding {
+// 	bid := &utils.DatedMetric{Amount: order.Bid, Date: order.Datetime}
+// 	ask := &utils.DatedMetric{Amount: order.Ask, Date: order.Datetime}
 
-	return &holding.Holding{
-		Ticker:   order.Ticker,
-		Volume:   order.Volume,
-		NumTicks: 1,
-		LastBid:  bid, LastAsk: ask,
-		AvgBid: bid.Amount, AvgAsk: ask.Amount,
-		MaxBid: bid, MaxAsk: ask,
-		MinBid: bid, MinAsk: ask,
-		BuyPrice: ask,
-	}
-}
+// 	return &holding.Holding{
+// 		Ticker:   order.Ticker,
+// 		Volume:   order.Volume,
+// 		NumTicks: 1,
+// 		LastBid:  bid, LastAsk: ask,
+// 		AvgBid: bid.Amount, AvgAsk: ask.Amount,
+// 		MaxBid: bid, MaxAsk: ask,
+// 		MinBid: bid, MinAsk: ask,
+// 		BuyPrice: ask,
+// 	}
+// }
 
 // Status variables refer to a status of an order's execution.
 type Status int

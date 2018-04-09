@@ -23,10 +23,10 @@ type Portfolio struct {
 }
 
 // New creates a new instance of a Portfolio struct.
-func New(cashAmt utils.Amount) *Portfolio {
+func New() *Portfolio {
 	port := Portfolio{
 		Active: make(map[string]*collection.HoldingSlice),
-		cash:   cashAmt,
+		cash:   0,
 	}
 	return &port
 }

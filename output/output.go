@@ -6,6 +6,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/jakeschurch/porttools/collection"
+	"github.com/jakeschurch/porttools/instrument"
+
 	"github.com/jakeschurch/porttools/collection/benchmark"
 
 	"github.com/jakeschurch/porttools/instrument/holding"
@@ -52,8 +55,8 @@ func (result *result) ToSlice() []string {
 		result.Ticker,
 		string(result.Filled),
 		result.AvgVolume.String(),
-		result.BuyValue.ToCurrency(),
-		result.EndValue.ToCurrency(),
+		result.BuyPrice.Amount.ToCurrency(),
+		result.SellPrice.Amount.ToCurrency(),
 		result.AvgBid.ToCurrency(),
 		result.MaxBid.Amount.ToCurrency(),
 		result.MaxBid.Date.Format(fmtString),
@@ -95,40 +98,14 @@ func resultsToCSV(results []result) (ok bool) {
 }
 
 type result struct {
-	Ticker    string
-	Filled    uint
-	AvgVolume utils.Amount
-
-	BuyValue utils.Amount
-	EndValue utils.Amount
-
-	AvgBid utils.Amount
-	MaxBid *utils.DatedMetric
-	MinBid *utils.DatedMetric
-
-	AvgAsk utils.Amount
-	MaxAsk *utils.DatedMetric
-	MinAsk *utils.DatedMetric
-	// TODO REVIEW: avgReturn
-	PctReturn utils.Amount
-	Alpha     utils.Amount
+	*instrument.Asset
+	BuyPrice, SellPrice *utils.DatedMetric
+	PctReturn           utils.Amount
+	Alpha               utils.Amount
 }
 
-func (result *result) update(holding holding.Holding) {
-	result.AvgBid += holding.AvgBid
-	result.AvgAsk += holding.AvgAsk
-
-	result.BuyValue += holding.BuyPrice.Amount * holding.Volume
-	result.EndValue += holding.SellPrice.Amount * holding.Volume
-
-	result.Filled++
-
-	result.MaxBid = utils.Max(result.MaxBid, holding.MaxBid.Amount, holding.MaxBid.Date)
-	result.MinBid = utils.Min(result.MinBid, holding.MinBid.Amount, holding.MinBid.Date)
-
-	result.MaxAsk = utils.Max(result.MaxAsk, holding.MaxAsk.Amount, holding.MaxAsk.Date)
-	result.MinAsk = utils.Min(result.MinAsk, holding.MinAsk.Amount, holding.MinAsk.Date)
-	return
+func (result *result) update(holding *collection.LinkedHoldingList) {
+	// TODO
 }
 
 func (result *result) averageize() {
@@ -136,16 +113,19 @@ func (result *result) averageize() {
 	result.AvgBid = utils.DivideAmt(result.AvgBid, amtFilled)
 	result.AvgAsk = utils.DivideAmt(result.AvgAsk, amtFilled)
 
-	result.PctReturn = utils.DivideAmt((result.EndValue - result.BuyValue), result.BuyValue)
+	result.PctReturn = utils.DivideAmt((result.SellPrice.Amount - result.BuyPrice.Amount), result.BuyPrice.Amount)
 	return
 }
 
 // GetResults ...TODO
-func GetResults(closedholdings []holding.Holding, benchmark *benchmark.Index, outputFormat Fmt) {
-	var results []result
+func GetResults(l *collection.HoldingList, benchmark *benchmark.Index, outputFormat Fmt) {
+	var results []*result
 
-	// create slice of all holding keys
-	holdingKeys := make([]string, 0)
+	for _, index := range l.Items() {
+		linkedList := l.GetByIndex(index)
+		ResultSet(linkedList)
+	}
+
 	benchmark.RLock()
 	for _, holding := range closedholdings {
 
@@ -154,8 +134,8 @@ func GetResults(closedholdings []holding.Holding, benchmark *benchmark.Index, ou
 		}
 		for _, key := range holdingKeys {
 			security := benchmark.Securities[key]
-			filtered := filter(closedholdings, key)
-			results = append(results, createResult(filtered, security))
+			filtered := filter(&closedholdings, key)
+			results = append(results, createResult(*filtered, security))
 		}
 	}
 	log.Println("Outputting results: ")
@@ -166,24 +146,38 @@ func GetResults(closedholdings []holding.Holding, benchmark *benchmark.Index, ou
 	}
 }
 
-func newResult(holding holding.Holding) result {
-	result := result{
-		Ticker:    holding.Ticker,
-		Filled:    1,
-		AvgVolume: holding.Volume,
+func ResultSet(l *collection.LinkedHoldingList) []*result {
+	var results []*result
 
-		BuyValue: holding.BuyPrice.Amount * holding.Volume,
-		EndValue: holding.SellPrice.Amount * holding.Volume,
+	for node := l.PeekFront(); node == nil; node = node.Next() {
 
-		AvgBid: holding.AvgBid,
-		MaxBid: holding.MaxBid,
-		MinBid: holding.MinBid,
+		new = &result{
+			Asset: &instrument.Asset{
+				Instrument: node.Instrument,
+				nTicks: 
+			},
+		}
 
-		AvgAsk: holding.AvgAsk,
-		MaxAsk: holding.MaxAsk,
-		MinAsk: holding.MinAsk,
 	}
-	return result
+	// 	Asset: &instrument.NewAsset()
+	// 	Instrument: &instrument.NewInstrument(holding.Ticker, holding.Volume)
+
+	// 	Ticker:    holding.Ticker,
+	// 	Filled:    1,
+	// 	AvgVolume: holding.Volume,
+
+	// 	BuyValue: holding.BuyPrice.Amount * holding.Volume,
+	// 	EndValue: holding.SellPrice.Amount * holding.Volume,
+
+	// 	AvgBid: holding.AvgBid,
+	// 	MaxBid: holding.MaxBid,
+	// 	MinBid: holding.MinBid,
+
+	// 	AvgAsk: holding.AvgAsk,
+	// 	MaxAsk: holding.MaxAsk,
+	// 	MinAsk: holding.MinAsk,
+	// }
+	// return result
 }
 func createResult(holdings []holding.Holding, security *security.Security) result {
 	var holdingResult result

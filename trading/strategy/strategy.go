@@ -5,12 +5,11 @@ import (
 	"github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/trading"
 	"github.com/jakeschurch/porttools/trading/order"
-	"github.com/jakeschurch/porttools/trading/strategy/algorithm"
 )
 
 // Strategy ... TODO
 type Strategy struct {
-	Algorithm algorithm.Algorithm
+	Algorithm porttools.Algorithm
 	ignore    []string // TODO: REVIEW later...
 }
 

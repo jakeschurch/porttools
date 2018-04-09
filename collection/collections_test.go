@@ -2,6 +2,12 @@ package collection
 
 import (
 	"testing"
+	"time"
+
+	"github.com/jakeschurch/porttools/instrument/holding"
+	"github.com/jakeschurch/porttools/utils"
+
+	"github.com/jakeschurch/porttools/instrument"
 )
 
 func mockLookupCache(items []string, openSlots []int16) *LookupCache {
@@ -16,31 +22,6 @@ func mockLookupCache(items []string, openSlots []int16) *LookupCache {
 	}
 
 	return l
-}
-
-func TestPut(t *testing.T) {
-	type args struct {
-		l   *LookupCache
-		key string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{"Base case", args{mockLookupCache([]string{}, []int16{}), "AAPL"}, false},
-		{"Check for existing ticker",
-			args{
-				mockLookupCache([]string{"AAPL"}, []int16{}),
-				"AAPL"}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Put(tt.args.l, tt.args.key); (err != nil) != tt.wantErr {
-				t.Errorf("Put() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
 }
 
 func TestGet(t *testing.T) {
@@ -62,6 +43,108 @@ func TestGet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := Get(tt.args.l, tt.args.key); got != tt.want {
 				t.Errorf("Get() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPut(t *testing.T) {
+	type args struct {
+		l   *LookupCache
+		key string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		wantValue int16
+		wantErr   bool
+	}{
+		{"Base case", args{mockLookupCache([]string{}, []int16{}), "AAPL"}, 0, false},
+		{"Check for existing ticker",
+			args{
+				mockLookupCache([]string{"AAPL"}, []int16{}),
+				"AAPL"}, 1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotValue, err := Put(tt.args.l, tt.args.key)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Put() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotValue != tt.wantValue {
+				t.Errorf("Put() = %v, want %v", gotValue, tt.wantValue)
+			}
+		})
+	}
+}
+
+func mockHolding() *holding.Holding {
+	ask := utils.FloatAmount(50.00)
+	askDatedMetric := &utils.DatedMetric{Amount: ask, Date: time.Time{}}
+
+	return &holding.Holding{
+		Instrument: instrument.NewInstrument("GOOGL", 10),
+		BuyPrice:   askDatedMetric,
+	}
+}
+
+func mockTick() instrument.Tick {
+	ask := utils.FloatAmount(50.00)
+	bid := utils.FloatAmount(49.50)
+	bidSz := utils.Amount(10)
+	askSz := utils.Amount(10)
+
+	return instrument.Tick{
+		Ticker: "GOOGL",
+		Bid:    bid, Ask: ask,
+		BidSize: bidSz, AskSize: askSz,
+		Timestamp: time.Time{}}
+}
+
+func mockLinkedList() *LinkedList {
+	return NewLinkedList(mockHolding(), mockTick())
+}
+
+func TestLinkedList_Push(t *testing.T) {
+	type fields struct {
+		Asset *instrument.Asset
+		head  *LinkedNode
+		tail  *LinkedNode
+	}
+	// Setup fields
+	mockedList := mockLinkedList()
+	testFields := fields{
+		Asset: mockedList.Asset,
+		head:  mockedList.head,
+		tail:  mockedList.tail}
+
+	type args struct {
+		node *LinkedNode
+		t    instrument.Tick
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+	}{
+		{"Base case", testFields,
+			args{node: NewLinkedNode(mockHolding()), t: mockTick()}},
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := &LinkedList{
+				Asset: tt.fields.Asset,
+				head:  tt.fields.head,
+				tail:  tt.fields.tail,
+			}
+			l.Push(tt.args.node, tt.args.t)
+			if tt.name == "Base case" {
+				vol := l.Volume(0)
+				if vol != 20 {
+					t.Errorf("Error of List Volume. Got = %d, expected %d", vol, 20)
+				}
 			}
 		})
 	}
