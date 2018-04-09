@@ -7,11 +7,13 @@ import (
 	"github.com/jakeschurch/porttools/instrument"
 )
 
+// FIX: UPDATE/REALLOCATE
+
 func TestGetResults(t *testing.T) {
 	type args struct {
 		closedholdings []instrument.Holding
 		benchmark      *benchmark.Index
-		outputFormat   Fmt
+		outputFormat   Format
 	}
 	tests := []struct {
 		name string

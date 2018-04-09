@@ -3,24 +3,89 @@ package porttools
 import (
 	"sync"
 
+	"github.com/jakeschurch/porttools/collection"
 	"github.com/jakeschurch/porttools/collection/portfolio"
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/trading/order"
+	"github.com/jakeschurch/porttools/order"
 	"github.com/jakeschurch/porttools/utils"
 )
 
 // OMS acts as an `Order Management System` to test trading signals and fill orders.
 type OMS struct {
-	sync.RWMutex
-	openOrders []*order.Order
+	mu   sync.RWMutex
+	open *collection.HoldingList
+	cash utils.Amount
 }
 
 // NewOMS inits a new OMS type.
 func NewOMS() *OMS {
 	oms := &OMS{
-		openOrders: make([]*order.Order, 0),
+		open: collection.NewHoldingList(),
+		cash: 0,
 	}
 	return oms
+}
+
+func (oms *OMS) Insert(o *order.Order) error {
+	var dxCash utils.Amount
+
+	switch o.Buy {
+	case true:
+		dxCash = -o.Ask * o.Volume(0)
+
+	case false:
+		dxCash = o.Bid * o.Volume(0)
+	}
+	oms.updateCash(dxCash)
+	return oms.open.Insert(o)
+}
+
+func (oms *OMS) Execute(node *collection.LinkedNode) {
+
+}
+
+func (oms *OMS) Query(q *instrument.Quote) {
+
+	var orderList *collection.LinkedList
+	var openOrder *collection.LinkedNode
+	var entryOrder, exitOrder *order.Order
+	var err error
+
+	switch entryOrder, _ := strategy.CheckEntryLogic(q); entryOrder != nil {
+	case true:
+		oms.Insert(entryOrder)
+	case false: // do nothing if entry logic is not met.
+	}
+
+	orderList, _ = oms.open.Get(q.Ticker())
+	for openOrder = orderList.PeekFront(); openOrder != nil; openOrder = openOrder.Next() {
+
+		// TEMP: for now, do nothing with exitOrder
+		exitOrder, err = strategy.CheckExitLogic(openOrder.GetUnderlying().(order.Order))
+		switch err != nil {
+		case false:
+
+		case true: // do nothing if invalid exit logic.
+
+		}
+	}
+
+}
+
+func (oms *OMS) QueryBuyOrder() {
+
+}
+
+func (oms *OMS) QuerySellOrder() {
+
+}
+
+func (oms *OMS) updateCash(dxCash utils.Amount) {
+	oms.mu.Lock()
+	oms.cash += dxCash
+	oms.mu.Unlock()
+
+	return
 }
 
 func (oms *OMS) addOrder(newOrder *order.Order) (utils.Amount, error) {
@@ -28,21 +93,6 @@ func (oms *OMS) addOrder(newOrder *order.Order) (utils.Amount, error) {
 	oms.openOrders = append(oms.openOrders, newOrder)
 	oms.Unlock()
 	return -(newOrder.Volume * newOrder.Ask), nil
-}
-
-func (oms *OMS) existsInOrders(ticker string) ([]*order.Order, error) {
-	matchedOrders := make([]*order.Order, 0)
-	oms.RLock()
-	for _, order := range oms.openOrders {
-		if order.Ticker == ticker {
-			matchedOrders = append(matchedOrders, order)
-		}
-	}
-	oms.RUnlock()
-	if len(matchedOrders) == 0 {
-		return nil, utils.ErrEmptySlice
-	}
-	return matchedOrders, nil
 }
 
 // TransactSell will sell an order and update a holding slice to reflect the changes.

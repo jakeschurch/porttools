@@ -15,14 +15,6 @@ type Financial interface {
 	Ticker() string
 }
 
-// Tick structs holds information about a financial asset at a specific point in time.
-type Tick struct {
-	Ticker           string
-	Bid, Ask         utils.Amount
-	BidSize, AskSize utils.Amount
-	Timestamp        time.Time
-}
-
 // ------------------------------------------------------------------
 
 // Instrument is the base type of a financial widget.
@@ -47,8 +39,12 @@ func (i Instrument) GetUnderlying() Financial {
 }
 
 // Volume can be used as a get/set method if 0 is delta.
-func (i *Instrument) Volume(delta utils.Amount) utils.Amount {
-	i.volume = i.volume + delta
+func (i Instrument) Volume(delta utils.Amount) utils.Amount {
+	return i.dxVolume(delta)
+}
+
+func (i *Instrument) dxVolume(delta utils.Amount) utils.Amount {
+	i.volume += delta
 	return i.volume
 }
 
@@ -57,34 +53,76 @@ func (i Instrument) Ticker() string {
 }
 
 // Update for an instrument is used to  implement Financial interface
-func (i *Instrument) Update(t Tick) error {
+func (i Instrument) Update(t Tick) error {
 	return nil
+}
+
+// ------------------------------------------------------------------
+
+type Quote struct {
+	Instrument
+	Bid, Ask  utils.Amount
+	Timestamp time.Time
+}
+
+func NewQuote(bid, ask utils.Amount, ts time.Time, i Instrument) *Quote {
+	return &Quote{
+		Instrument: i,
+		Bid:        bid, Ask: ask, Timestamp: ts,
+	}
+}
+
+func (q Quote) GetUnderlying() Financial {
+	return q.Instrument
+}
+
+func (q Quote) Ticker() string {
+	return q.ticker
+}
+
+// ------------------------------------------------------------------
+
+// Tick structs holds information about a financial asset at a specific point in time.
+type Tick struct {
+	*Quote
+	BidSize, AskSize utils.Amount
+}
+
+func NewTick(bidSz, askSz utils.Amount, q *Quote) *Tick {
+	return &Tick{
+		Quote:   q,
+		BidSize: bidSz, AskSize: askSz,
+	}
+}
+
+func (t *Tick) GetUnderlying() Financial {
+	return t.Quote
 }
 
 // ------------------------------------------------------------------
 
 // Asset is tradeable instrument type.
 type Asset struct {
-	*Instrument
+	*Quote
 
-	AvgBid, AvgAsk   utils.Amount
 	LastBid, LastAsk *utils.DatedMetric
+	AvgBid, AvgAsk   utils.Amount
 	MaxBid, MaxAsk   *utils.DatedMetric
 	MinBid, MinAsk   *utils.DatedMetric
 }
 
-// GetUnderlying returns an asset's embedded Instrument type.
+// GetUnderlying returns an asset's embedded Quote type.
 func (a Asset) GetUnderlying() Financial {
-	return a.Instrument
+	return a.Quote
 }
 
 // NewAsset instantiaties a new struct of type Asset.
-func NewAsset(ticker string, bid, ask, volume utils.Amount, timestamp time.Time) *Asset {
-	assetBid := &utils.DatedMetric{Amount: bid, Date: timestamp}
-	assetAsk := &utils.DatedMetric{Amount: ask, Date: timestamp}
+func NewAsset(q *Quote) *Asset {
+	assetBid := &utils.DatedMetric{Amount: q.Bid, Date: q.Timestamp}
+	assetAsk := &utils.DatedMetric{Amount: q.Ask, Date: q.Timestamp}
 
 	return &Asset{
-		Instrument: &Instrument{ticker: ticker, volume: volume, Nticks: 1},
+		Quote: q,
 
 		AvgBid: assetBid.Amount, AvgAsk: assetAsk.Amount,
 		LastBid: assetBid, MaxBid: assetBid, MinBid: assetBid,
@@ -118,14 +156,14 @@ func (a *Asset) update(t Tick) error {
 
 // Holding structs refer the holding of a financial asset.
 type Holding struct {
-	*Instrument
+	Instrument
 	BuyPrice, SellPrice *utils.DatedMetric
 }
 
 // NewHolding instantities struct of type Holding.
-func NewHolding(instrument *Instrument, buyPrice *utils.DatedMetric) *Holding {
+func NewHolding(q Quote, buyPrice *utils.DatedMetric) *Holding {
 	return &Holding{
-		Instrument: instrument,
+		Instrument: q.Instrument,
 		BuyPrice:   buyPrice,
 	}
 }
@@ -141,14 +179,14 @@ func (h Holding) GetUnderlying() Financial {
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embedded into an Index or Benchmark.
 type Security struct {
-	*Asset
+	Asset
 	BuyPrice, SellPrice *utils.DatedMetric
 }
 
 // NewSecurity instantiates a security object from Tick data.
 func NewSecurity(buy, sell *utils.DatedMetric, asset Asset) *Security {
 	return &Security{
-		Asset:    &asset,
+		Asset:    asset,
 		BuyPrice: buy, SellPrice: sell,
 	}
 }

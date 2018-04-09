@@ -15,41 +15,34 @@ import (
 	"github.com/jakeschurch/porttools/collection/portfolio"
 	"github.com/jakeschurch/porttools/config"
 	"github.com/jakeschurch/porttools/instrument"
+	"github.com/jakeschurch/porttools/order"
 	"github.com/jakeschurch/porttools/output"
-	"github.com/jakeschurch/porttools/trading"
-	"github.com/jakeschurch/porttools/trading/order"
-	"github.com/jakeschurch/porttools/trading/strategy"
 	"github.com/jakeschurch/porttools/utils"
 )
 
 var (
-	oms  *OMS
-	port     *portfolio.Portfolio 
+	oms       *OMS
+	port      *portfolio.Portfolio
 	prfmLog   *PrfmLog
 	benchmark *benchmark.Index
+	strategy  Strategy
 )
+
 func init() {
-	oms       = NewOMS()
-	port      = portfolio.New()
-	prfmLog   = newPrfmLog()
+	oms = NewOMS()
+	port = portfolio.New()
+	positionLog = output.NewPositionLog()
 	benchmark = benchmark.NewIndex()
 }
 
-// Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
-type Algorithm interface {
-	EntryLogic(instrument.Tick, sim.Get(get...)) (*order.Order, bool)
-	ExitLogic(instrument.Tick, *order.Order) (*order.Order, bool)
-	ValidOrder(sim.Get(get...), *order.Order) bool
-}
-
-type get func() *interface{}
+type QueryFunc func() *interface{}
 
 // Get is a function that allows end-users to access private structs when implementing an algorithm.
-func (sim *Simulation) Get(gets get...) []*interface {
+func (sim *Simulation) Query(fn ...QueryFunc) []*interface{} {
 	retrieved := make([]interface{}, 0)
 
-	for i := range funcs {
-		retrieved = append(retrieved, gets[i])
+	for i := range fn {
+		retrieved = append(retrieved, fn[i])
 	}
 	return retrieved
 }
@@ -64,9 +57,7 @@ func (sim *Simulation) OMS() *OMS {
 	return oms
 }
 
-
 // sim.PrfmLog()
-
 
 // IDEA: init statement to clear logic?
 
@@ -108,13 +99,8 @@ func NewSimulation(algo algorithm.Algorithm, cfgFile string) (*Simulation, error
 
 // Simulation embeds all data structs necessary for running a backtest of an algorithmic strategy.
 type Simulation struct {
-	sync.RWMutex
-	oms         *OMS
+	mu          sync.RWMutex
 	config      config.Config
-	port        *portfolio.Portfolio
-	prfmLog     *PrfmLog
-	benchmark   *benchmark.Index
-	strategy    strategy.Strategy
 	processChan chan *instrument.Tick
 	tickChan    chan *instrument.Tick
 	errChan     chan error

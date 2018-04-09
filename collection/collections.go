@@ -4,16 +4,18 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/jakeschurch/porttools/order"
+
 	"github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/utils"
 )
 
-const (
-	SecurityType = "Security"
-	HoldingType  = "Holding"
-)
-
 var (
+	// ErrNodeNotFound indicates that a node could not be found in a linked list.
+	ErrNodeNotFound = errors.New("node not foudn in linked list")
+
+	ErrEmptyList = errors.New("list is empty; please delete")
+
 	// ErrKeyExists indicates that an index value already exists in the lookup cache
 	ErrKeyExists = errors.New("key already exists in LookupCache")
 
@@ -115,14 +117,20 @@ func NewLinkedNode(f instrument.Financial) *LinkedNode {
 }
 
 func (node *LinkedNode) GetUnderlying() instrument.Financial {
+
 	switch node.Financial.(type) {
 	case instrument.Holding:
 		return instrument.Holding(node.Financial.(instrument.Holding))
 
 	case instrument.Security:
 		return instrument.Security(node.Financial.(instrument.Security))
+
+	case order.Order:
+		return order.Order(node.Financial.(order.Order))
+
+	default:
+		return nil
 	}
-	return nil
 }
 
 func (node *LinkedNode) Next() *LinkedNode {
@@ -184,7 +192,7 @@ func (l *LinkedList) Push(f instrument.Financial) {
 func (l *LinkedList) PopToSecurity(c utils.CostMethod) *instrument.Security {
 	popped := l.Pop(c)
 	security := &instrument.Security{
-		Asset: l.Asset,
+		Asset: *l.Asset,
 	}
 	security.Volume(-security.Volume(0) + popped.Volume(0))
 	security.Nticks = l.Nticks - popped.Financial.(instrument.Holding).Nticks
@@ -250,6 +258,39 @@ func (l *LinkedList) PeekFront() *LinkedNode {
 	return l.head.next
 }
 
+func (l *LinkedList) remove(node *LinkedNode) error {
+	var next = l.head.next
+
+	switch node {
+	case l.tail:
+		l.pop()
+		return nil
+
+	case next:
+		l.PopFront()
+		return nil
+
+	default:
+		next = next.next
+	}
+
+	for next != nil {
+		if next == node { // delete node reference
+			next.prev.next = next.next
+			next.next.prev = next.prev
+
+			l.Volume(-next.Volume(0))
+			//  linkedList
+			if l.head.next == nil {
+				return ErrEmptyList
+			}
+			return nil
+		}
+		next = next.next
+	}
+	return ErrNodeNotFound
+}
+
 // ------------------------------------------------------------------
 
 // HoldingList is an implementation of a holding collection.
@@ -272,7 +313,7 @@ func NewHoldingList() *HoldingList {
 func (l *HoldingList) Update(t instrument.Tick) error {
 	var index int16
 
-	if index = Get(l.cache, t.Ticker); index == -1 {
+	if index = Get(l.cache, t.Ticker()); index == -1 {
 		return ErrNoListExists
 	}
 	return l.list[index].Update(t)
@@ -290,6 +331,25 @@ func (l *HoldingList) Get(key string) (*LinkedList, error) {
 		return linkedList, nil
 	}
 	return nil, ErrNoListExists
+}
+
+func (l *HoldingList) RemoveNode(node *LinkedNode) error {
+	var list *LinkedList
+	var err error
+
+	if list, err = l.Get(node.Ticker()); err != nil {
+		if err == ErrNoListExists {
+			return nil
+		}
+		return err
+	}
+	if err = list.remove(node); err != nil {
+		if err == ErrEmptyList {
+			return l.Delete(node.Ticker())
+		}
+		return err
+	}
+	return nil
 }
 
 func (l *HoldingList) GetByIndex(index int16) *LinkedList {

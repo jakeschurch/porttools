@@ -37,7 +37,7 @@ type PositionLog struct {
 	ClosedPositions *collection.HoldingList
 }
 
-func newPositionLog() *PositionLog {
+func NewPositionLog() *PositionLog {
 	p := PositionLog{
 		ClosedPositions: collection.NewHoldingList(),
 	}
@@ -57,12 +57,12 @@ type result struct {
 	Alpha     utils.Amount
 }
 
-// format ...
-type format int
+// Format ...
+type Format int
 
-// Output specifies format of results wanted
+// Output specifies Format of results wanted
 const (
-	CSV format = iota
+	CSV Format = iota
 	// TODO: JSON
 )
 
@@ -93,7 +93,7 @@ func toSlice(result *result) []string {
 }
 
 // GetResults ...TODO
-func GetResults(closed *collection.HoldingList, benchmark *collection.HoldingList, outputFormat Fmt) {
+func GetResults(outputFormat Format, closed *collection.HoldingList, benchmark *collection.HoldingList) {
 	var results []*result
 	var benchmarkPosition *collection.LinkedList
 

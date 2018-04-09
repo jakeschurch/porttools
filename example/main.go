@@ -10,7 +10,7 @@ import (
 	"github.com/jakeschurch/porttools"
 	"github.com/jakeschurch/porttools/collection/portfolio"
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/trading/order"
+	"github.com/jakeschurch/porttools/order"
 	"github.com/jakeschurch/porttools/utils"
 )
 
