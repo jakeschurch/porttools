@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/jakeschurch/porttools/collection/portfolio"
-	"github.com/jakeschurch/porttools/instrument/holding"
+	"github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/trading/order"
 	"github.com/jakeschurch/porttools/utils"
 )
@@ -46,11 +46,11 @@ func (oms *OMS) existsInOrders(ticker string) ([]*order.Order, error) {
 }
 
 // TransactSell will sell an order and update a holding slice to reflect the changes.
-func (oms *OMS) TransactSell(order *order.Order, costMethod utils.CostMethod, port *portfolio.Portfolio) (utils.Amount, []holding.Holding, error) {
-	var closedHoldings []holding.Holding
+func (oms *OMS) TransactSell(order *order.Order, costMethod utils.CostMethod, port *portfolio.Portfolio) (utils.Amount, []instrument.Holding, error) {
+	var closedHoldings []instrument.Holding
 	var transactionAmount utils.Amount
 	var sellVolume utils.Amount
-	var pos *holding.Holding
+	var pos *instrument.Holding
 	var err error
 
 	// loop over slice until order has been completely transacted
@@ -75,7 +75,7 @@ func (oms *OMS) TransactSell(order *order.Order, costMethod utils.CostMethod, po
 		// create new closed position
 		bid := &utils.DatedMetric{Amount: order.Bid, Date: order.Datetime}
 		ask := &utils.DatedMetric{Amount: order.Ask, Date: order.Datetime}
-		newClosedPosition := holding.Holding{
+		newClosedPosition := instrument.Holding{
 			Ticker:   pos.Ticker,
 			Volume:   sellVolume,
 			NumTicks: pos.NumTicks,

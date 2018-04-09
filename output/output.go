@@ -8,11 +8,7 @@ import (
 
 	"github.com/jakeschurch/porttools/collection"
 	"github.com/jakeschurch/porttools/instrument"
-
 	"github.com/jakeschurch/porttools/collection/benchmark"
-
-	"github.com/jakeschurch/porttools/instrument/holding"
-	"github.com/jakeschurch/porttools/instrument/security"
 	"github.com/jakeschurch/porttools/utils"
 )
 

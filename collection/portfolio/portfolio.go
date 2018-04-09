@@ -6,7 +6,6 @@ import (
 
 	"github.com/jakeschurch/porttools/collection"
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/instrument/holding"
 	"github.com/jakeschurch/porttools/utils"
 )
 

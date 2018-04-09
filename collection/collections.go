@@ -4,17 +4,14 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/jakeschurch/porttools/instrument/security"
-
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/instrument/holding"
 	"github.com/jakeschurch/porttools/utils"
 )
 
-// const (
-// 	SecurityType = "Security"
-// 	HoldingType  = "Holding"
-// )
+const (
+	SecurityType = "Security"
+	HoldingType  = "Holding"
+)
 
 var (
 	// ErrKeyExists indicates that an index value already exists in the lookup cache
@@ -102,18 +99,18 @@ func Put(l *LookupCache, key string) (value int16, err error) {
 // as well as aggregate metrics on the collection of holdings.
 type LinkedList struct {
 	*instrument.Asset
-	mu       sync.RWMutex
-	head     *LinkedNode
-	tail     *LinkedNode
-	nodeType string
+	mu   sync.RWMutex
+	head *LinkedNode
+	tail *LinkedNode
 }
 
 // NewLinkedList instantiates a new struct of type LinkedList.
-func NewLinkedList(h *holding.Holding, t instrument.Tick) *LinkedList {
+func NewLinkedList(f instrument.Financial) *LinkedList {
+	asset := f.(instrument.Asset)
 	l := &LinkedList{
-		Asset: instrument.NewAsset(t.Ticker, t.Bid, t.Ask, h.Volume(0), t.Timestamp),
+		Asset: &asset,
 		head:  new(LinkedNode),
-		tail:  NewLinkedNode(h),
+		tail:  NewLinkedNode(f),
 	}
 	l.head.next = l.tail
 	l.tail.prev = l.head
@@ -122,11 +119,9 @@ func NewLinkedList(h *holding.Holding, t instrument.Tick) *LinkedList {
 }
 
 // Push inserts a new element
-func (l *LinkedList) Push(f instrument.Financial, t instrument.Tick) {
+func (l *LinkedList) Push(f instrument.Financial) {
 	var last *LinkedNode
 
-	// Update LinkedList Aggregates
-	l.Update(t)
 	l.Volume(f.Volume(0))
 	node := NewLinkedNode(f)
 
@@ -148,6 +143,17 @@ func (l *LinkedList) Pop(costMethod utils.CostMethod) *LinkedNode {
 		return l.pop()
 	}
 	return l.PopFront()
+}
+
+func (l *LinkedList) PopToSecurity(costMethod utils.CostMethod) *instrument.Security {
+	popped := l.Pop(costMethod)
+	security := &instrument.Security{
+		Asset: l.Asset,
+	}
+	security.Volume(-security.Volume(0) + popped.Volume(0))
+	security.Nticks = l.Nticks - popped.Financial.(instrument.Holding).Nticks
+
+	return security
 }
 
 // Pop returns last element in linkedList.
@@ -200,11 +206,11 @@ type LinkedNode struct {
 
 func (node *LinkedNode) GetUnderlying() instrument.Financial {
 	switch node.Financial.(type) {
-	case holding.Holding:
-		return holding.Holding(node.Financial.(holding.Holding))
+	case instrument.Holding:
+		return instrument.Holding(node.Financial.(instrument.Holding))
 
-	case security.Security:
-		return security.Security(node.Financial.(security.Security))
+	case instrument.Security:
+		return instrument.Security(node.Financial.(instrument.Security))
 	}
 	return nil
 }
@@ -270,11 +276,11 @@ func (l *HoldingList) GetByIndex(index int16) *LinkedList {
 }
 
 // Insert adds a new node to a HoldingList's linked list.
-func (l *HoldingList) Insert(h *holding.Holding, t instrument.Tick) (err error) {
+func (l *HoldingList) Insert(f instrument.Financial) (err error) {
 	var new bool
 	var index int16
 
-	if index, err = Put(l.cache, h.Ticker); err != ErrKeyExists {
+	if index, err = Put(l.cache, f.Ticker()); err != ErrKeyExists {
 		new = true
 	}
 
@@ -293,10 +299,41 @@ func (l *HoldingList) Insert(h *holding.Holding, t instrument.Tick) (err error) 
 	// ... or if we can just push new node.
 	switch new {
 	case true:
-		l.list[index] = NewLinkedList(h, t)
+		l.list[index] = NewLinkedList(f)
 	case false:
-		l.list[index].Push(NewLinkedNode(h), t)
+		l.list[index].Push(NewLinkedNode(f))
 	}
+	return nil
+}
+
+func (l *HoldingList) InsertUpdate(f instrument.Financial, t instrument.Tick) (err error) {
+	var new bool
+	var index int16
+
+	if index, err = Put(l.cache, f.Ticker()); err != ErrKeyExists {
+		new = true
+	}
+
+	// see if we can place new holding in open slot
+	// ... or if we have to allocate new space.
+	l.mu.Lock()
+	if index > l.len {
+		l.list = append(make([]*LinkedList, (index+1)*2), l.list...)
+		l.len = (index + 1) * 2
+	} else {
+		l.len++
+	}
+	l.mu.Unlock()
+
+	// Check to see if we need to allocate a new Linked list
+	// ... or if we can just push new node.
+	switch new {
+	case true:
+		l.list[index] = NewLinkedList(f)
+	case false:
+		l.list[index].Push(NewLinkedNode(f))
+	}
+	l.GetByIndex(index).Update(t)
 	return nil
 }
 
