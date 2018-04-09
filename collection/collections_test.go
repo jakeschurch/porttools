@@ -4,10 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jakeschurch/porttools/instrument/holding"
-	"github.com/jakeschurch/porttools/utils"
-
 	"github.com/jakeschurch/porttools/instrument"
+	"github.com/jakeschurch/porttools/utils"
 )
 
 func mockLookupCache(items []string, openSlots []int16) *LookupCache {
@@ -79,14 +77,15 @@ func TestPut(t *testing.T) {
 	}
 }
 
-func mockHolding() *holding.Holding {
+func mockHolding() *instrument.Holding {
 	ask := utils.FloatAmount(50.00)
 	askDatedMetric := &utils.DatedMetric{Amount: ask, Date: time.Time{}}
 
-	return &holding.Holding{
+	i := &instrument.Holding{
 		Instrument: instrument.NewInstrument("GOOGL", 10),
 		BuyPrice:   askDatedMetric,
 	}
+	return i
 }
 
 func mockTick() instrument.Tick {
@@ -103,7 +102,17 @@ func mockTick() instrument.Tick {
 }
 
 func mockLinkedList() *LinkedList {
-	return NewLinkedList(mockHolding(), mockTick())
+	ask := utils.FloatAmount(50.00)
+	askDatedMetric := &utils.DatedMetric{Amount: ask, Date: time.Time{}}
+	bid := utils.FloatAmount(49.00)
+	bidDatedMetric := &utils.DatedMetric{Amount: bid, Date: time.Time{}}
+
+	return NewLinkedList(
+		instrument.Asset{
+			Instrument: mockHolding().Instrument,
+			LastAsk:    askDatedMetric, LastBid: bidDatedMetric,
+			MaxBid: bidDatedMetric, MaxAsk: askDatedMetric,
+			MinAsk: askDatedMetric, MinBid: bidDatedMetric})
 }
 
 func TestLinkedList_Push(t *testing.T) {
@@ -129,7 +138,7 @@ func TestLinkedList_Push(t *testing.T) {
 		args   args
 	}{
 		{"Base case", testFields,
-			args{node: NewLinkedNode(mockHolding()), t: mockTick()}},
+			args{node: NewLinkedNode(mockHolding())}},
 		// TODO: Add test cases.
 	}
 	for _, tt := range tests {
@@ -139,7 +148,7 @@ func TestLinkedList_Push(t *testing.T) {
 				head:  tt.fields.head,
 				tail:  tt.fields.tail,
 			}
-			l.Push(tt.args.node, tt.args.t)
+			l.Push(tt.args.node)
 			if tt.name == "Base case" {
 				vol := l.Volume(0)
 				if vol != 20 {

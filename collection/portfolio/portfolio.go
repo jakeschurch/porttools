@@ -16,55 +16,51 @@ var (
 
 // Portfolio struct refer to the aggregation of positions traded by a broker.
 type Portfolio struct {
-	sync.RWMutex
-	Active map[string]*collection.HoldingSlice
+	active *collection.HoldingList
+	mu     sync.RWMutex
 	cash   utils.Amount
 }
 
 // New creates a new instance of a Portfolio struct.
 func New() *Portfolio {
 	port := Portfolio{
-		Active: make(map[string]*collection.HoldingSlice),
+		active: collection.NewHoldingList(),
 		cash:   0,
 	}
 	return &port
 }
-
-// ApplyDelta ... TODO
-func (port *Portfolio) ApplyDelta(amt utils.Amount) error {
-	port.Lock()
-	newBalance := port.cash + amt
-	if newBalance < 0 {
-		return ErrNegativeCash
-	}
-	port.cash = newBalance
-	port.Unlock()
-	return nil
+func (port *Portfolio) Insert(h *instrument.Holding, t instrument.Tick) error {
+	return port.active.InsertUpdate(h, t)
 }
 
-// UpdateMetrics updates holding metric data based off of tick information.
-func (port *Portfolio) UpdateMetrics(tick instrument.Tick) error {
-	_, exists := port.Active[tick.Ticker]
-	if !exists {
-		return utils.ErrEmptySlice
-	}
-
-	return port.Active[tick.Ticker].UpdateMetrics(tick)
+func (port *Portfolio) Delete(key string) error {
+	return port.active.Delete(key)
 }
 
-// AddHolding adds a new holding to the dedicated Active holdingSlice if it exists.
-// Returns error if holdingSlice with same ticker does not exist in map.
-func (port *Portfolio) AddHolding(newHolding *holding.Holding, deltaCash utils.Amount) error {
-	port.Lock()
-	if _, ok := port.Active[newHolding.Ticker]; !ok {
-		// log.Printf("Created new slice for %s", newHolding.Ticker)
-		port.Active[newHolding.Ticker] = collection.NewHoldingSlice()
+func (port *Portfolio) Update(t instrument.Tick) error {
+	return port.active.Update(t)
+}
+
+// Pop returns a LinkedNode struct, will return element at head.next or tail
+// position depending on the CostMethod specified.
+func (port *Portfolio) Pop(key string, c utils.CostMethod) (*collection.LinkedNode, error) {
+	var linkedList *collection.LinkedList
+	var err error
+
+	if linkedList, err = port.active.Get(key); err != nil {
+		return nil, err
 	}
-	err := port.Active[newHolding.Ticker].AddNew(newHolding)
-	if err != nil {
-		port.Unlock()
-		return err
+	return linkedList.Pop(c), nil
+}
+
+// Peek will return an element from a Linked List, depending on the key given
+// as well as the cost method. Will return nil if nothing found.
+func (port *Portfolio) Peek(key string, c utils.CostMethod) *collection.LinkedNode {
+	var err error
+	var list *collection.LinkedList
+
+	if list, err = port.active.Get(key); err != nil {
+		return nil
 	}
-	port.Unlock()
-	return port.ApplyDelta(deltaCash)
+	return list.Peek(c)
 }

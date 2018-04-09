@@ -29,6 +29,8 @@ var (
 	ErrNegativeVolume = errors.New("position volume is less than 0")
 )
 
+// ------------------------------------------------------------------
+
 // LookupCache acts as read-write cache to indicate index positions of holdings in a slice.
 type LookupCache struct {
 	items     map[string]int16
@@ -95,6 +97,40 @@ func Put(l *LookupCache, key string) (value int16, err error) {
 	return value, nil
 }
 
+// ------------------------------------------------------------------
+
+// LinkedNode is the linked list node implementation of a holding struct.
+type LinkedNode struct {
+	instrument.Financial
+	next *LinkedNode
+	prev *LinkedNode
+}
+
+func NewLinkedNode(f instrument.Financial) *LinkedNode {
+	return &LinkedNode{
+		Financial: f,
+		next:      nil,
+		prev:      nil,
+	}
+}
+
+func (node *LinkedNode) GetUnderlying() instrument.Financial {
+	switch node.Financial.(type) {
+	case instrument.Holding:
+		return instrument.Holding(node.Financial.(instrument.Holding))
+
+	case instrument.Security:
+		return instrument.Security(node.Financial.(instrument.Security))
+	}
+	return nil
+}
+
+func (node *LinkedNode) Next() *LinkedNode {
+	return node.next
+}
+
+// ------------------------------------------------------------------
+
 // LinkedList is a collection of holding elements,
 // as well as aggregate metrics on the collection of holdings.
 type LinkedList struct {
@@ -106,7 +142,16 @@ type LinkedList struct {
 
 // NewLinkedList instantiates a new struct of type LinkedList.
 func NewLinkedList(f instrument.Financial) *LinkedList {
-	asset := f.(instrument.Asset)
+	var asset instrument.Asset
+
+	switch f.(type) {
+	case instrument.Asset:
+		asset = f.(instrument.Asset)
+
+	case instrument.Security:
+		asset = f.(instrument.Security).GetUnderlying().(instrument.Asset)
+	}
+
 	l := &LinkedList{
 		Asset: &asset,
 		head:  new(LinkedNode),
@@ -136,17 +181,8 @@ func (l *LinkedList) Push(f instrument.Financial) {
 	l.tail = last
 }
 
-// Pop returns last element in linkedList.
-// Returns nil if no elements in list besides head and tail.
-func (l *LinkedList) Pop(costMethod utils.CostMethod) *LinkedNode {
-	if costMethod == utils.Lifo {
-		return l.pop()
-	}
-	return l.PopFront()
-}
-
-func (l *LinkedList) PopToSecurity(costMethod utils.CostMethod) *instrument.Security {
-	popped := l.Pop(costMethod)
+func (l *LinkedList) PopToSecurity(c utils.CostMethod) *instrument.Security {
+	popped := l.Pop(c)
 	security := &instrument.Security{
 		Asset: l.Asset,
 	}
@@ -154,6 +190,15 @@ func (l *LinkedList) PopToSecurity(costMethod utils.CostMethod) *instrument.Secu
 	security.Nticks = l.Nticks - popped.Financial.(instrument.Holding).Nticks
 
 	return security
+}
+
+// Pop returns last element in linkedList.
+// Returns nil if no elements in list besides head and tail.
+func (l *LinkedList) Pop(c utils.CostMethod) *LinkedNode {
+	if c == utils.Lifo {
+		return l.pop()
+	}
+	return l.PopFront()
 }
 
 // Pop returns last element in linkedList.
@@ -188,8 +233,16 @@ func (l *LinkedList) PopFront() *LinkedNode {
 	return first
 }
 
+func (l *LinkedList) Peek(c utils.CostMethod) *LinkedNode {
+	if c == utils.Lifo {
+		return l.peek()
+	}
+	return l.PeekFront()
+}
+
 // Peek ...TODO
-func (l *LinkedList) Peek() {
+func (l *LinkedList) peek() *LinkedNode {
+	return l.tail
 }
 
 // PeekFront ...TODO
@@ -197,35 +250,7 @@ func (l *LinkedList) PeekFront() *LinkedNode {
 	return l.head.next
 }
 
-// LinkedNode is the linked list node implementation of a holding struct.
-type LinkedNode struct {
-	instrument.Financial
-	next *LinkedNode
-	prev *LinkedNode
-}
-
-func (node *LinkedNode) GetUnderlying() instrument.Financial {
-	switch node.Financial.(type) {
-	case instrument.Holding:
-		return instrument.Holding(node.Financial.(instrument.Holding))
-
-	case instrument.Security:
-		return instrument.Security(node.Financial.(instrument.Security))
-	}
-	return nil
-}
-
-func (node *LinkedNode) Next() *LinkedNode {
-	return node.next
-}
-
-func NewLinkedNode(f instrument.Financial) *LinkedNode {
-	return &LinkedNode{
-		Financial: f,
-		next:      nil,
-		prev:      nil,
-	}
-}
+// ------------------------------------------------------------------
 
 // HoldingList is an implementation of a holding collection.
 type HoldingList struct {

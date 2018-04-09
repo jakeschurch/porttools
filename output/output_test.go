@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	"github.com/jakeschurch/porttools/collection/benchmark"
-	"github.com/jakeschurch/porttools/instrument/holding"
+	"github.com/jakeschurch/porttools/instrument"
 )
 
 func TestGetResults(t *testing.T) {
 	type args struct {
-		closedholdings []holding.Holding
+		closedholdings []instrument.Holding
 		benchmark      *benchmark.Index
 		outputFormat   Fmt
 	}

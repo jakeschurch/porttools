@@ -8,72 +8,142 @@ import (
 
 	"github.com/jakeschurch/porttools/collection"
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/collection/benchmark"
 	"github.com/jakeschurch/porttools/utils"
 )
 
-// Fmt ...todo
-type Fmt int
+// headers is a list of string headers to output to csv.
+var headers = []string{
+	"Ticker",
+	"Volume",
+	"Ticks Seen",
+	"Buy Date",
+	"Buy Price",
+	"Sell Date",
+	"Sell Price",
+	"Max. Bid",
+	"Avg. Bid",
+	"Min. Bid",
+	"Max. Ask",
+	"Avg. Ask",
+	"Min. Ask",
+	"Percent Return",
+	"Alpha",
+}
+
+// ------------------------------------------------------------------
+
+// PositionLog allows for performance analysis.
+type PositionLog struct {
+	ClosedPositions *collection.HoldingList
+}
+
+func newPositionLog() *PositionLog {
+	p := PositionLog{
+		ClosedPositions: collection.NewHoldingList(),
+	}
+	return &p
+}
+
+// Insert adds a closed holding to the performance log's closed holdings slice.
+func (p *PositionLog) Insert(s *instrument.Security) error {
+	return p.ClosedPositions.Insert(s)
+}
+
+// ------------------------------------------------------------------
+
+type result struct {
+	*instrument.Security
+	PctReturn utils.Amount
+	Alpha     utils.Amount
+}
+
+// format ...
+type format int
 
 // Output specifies format of results wanted
 const (
-	CSV Fmt = iota
+	CSV format = iota
 	// TODO: JSON
 )
 
-func headers() []string {
-
-	return []string{
-		"Ticker",
-		"Filled",
-		"AvgVolume",
-		"BuyValue",
-		"EndValue",
-		"AvgBid",
-		"MaxBid (amount)",
-		"MaxBid (date)",
-		"MinBid (amount)",
-		"MinBid (date)",
-		"AvgAsk",
-		"MaxAsk (amount)",
-		"MaxAsk (date)",
-		"MinAsk (amount)",
-		"MinAsk (date)",
-		"PctReturn",
-		"Alpha",
-	}
-}
-
-func (result *result) ToSlice() []string {
+func toSlice(result *result) []string {
 	fmtString := time.RFC1123
 
 	return []string{
-		result.Ticker,
-		string(result.Filled),
-		result.AvgVolume.String(),
-		result.BuyPrice.Amount.ToCurrency(),
-		result.SellPrice.Amount.ToCurrency(),
-		result.AvgBid.ToCurrency(),
-		result.MaxBid.Amount.ToCurrency(),
-		result.MaxBid.Date.Format(fmtString),
-		result.MinBid.Amount.ToCurrency(),
-		result.MinBid.Date.Format(fmtString),
-		result.AvgAsk.ToCurrency(),
-		result.MaxAsk.Amount.ToCurrency(),
-		result.MaxAsk.Date.Format(fmtString),
-		result.MinAsk.Amount.ToCurrency(),
-		result.MinAsk.Date.Format(fmtString),
+		result.Ticker(),
+		string(result.Volume(0)),
+		string(result.Nticks),
+
+		result.BuyPrice.Date.Format(fmtString),
+		result.BuyPrice.Amount.String(),
+		result.SellPrice.Date.Format(fmtString),
+		result.SellPrice.Amount.String(),
+
+		result.MaxBid.Amount.String(),
+		result.AvgBid.String(),
+		result.MinBid.Amount.String(),
+
+		result.MaxAsk.Amount.String(),
+		result.AvgAsk.String(),
+		result.MinAsk.Amount.String(),
+
 		result.PctReturn.ToPercent(),
 		result.Alpha.ToPercent(),
 	}
 }
 
-func resultsToCSV(results []result) (ok bool) {
+// GetResults ...TODO
+func GetResults(closed *collection.HoldingList, benchmark *collection.HoldingList, outputFormat Fmt) {
+	var results []*result
+	var benchmarkPosition *collection.LinkedList
+
+	for key, index := range closed.Items() {
+		linkedList := closed.GetByIndex(index)
+		benchmarkPosition, _ = benchmark.Get(key)
+		results = append(results, resultSet(linkedList, benchmarkPosition)...)
+	}
+
+	log.Println("Outputting results: ")
+	switch outputFormat {
+	case CSV:
+		resultsToCSV(results)
+
+	}
+}
+
+func resultSet(closed, index *collection.LinkedList) []*result {
+	var results []*result
+	var security, benchmarkSecurity instrument.Security
+	var node = closed.PeekFront()
+
+	switch node.Financial.(type) {
+	case instrument.Security:
+		benchmarkSecurity = index.PeekFront().GetUnderlying().(instrument.Security)
+	default:
+		return nil
+	}
+
+	for node := closed.PeekFront(); node == nil; node = node.Next() {
+		security = node.GetUnderlying().(instrument.Security)
+		pctReturn := utils.DivideAmt(security.SellPrice.Amount-security.BuyPrice.Amount, security.BuyPrice.Amount)
+
+		newResult := &result{
+			Security:  &security,
+			PctReturn: pctReturn,
+			Alpha:     pctReturn - utils.DivideAmt(benchmarkSecurity.SellPrice.Amount-security.BuyPrice.Amount, security.BuyPrice.Amount),
+		}
+		newResult.Nticks = closed.Nticks - newResult.Instrument.Nticks
+		results = append(results, newResult)
+	}
+	return results
+}
+
+func resultsToCSV(results []*result) (ok bool) {
 	var output [][]string
-	output = append(output, headers())
+	output = append(output, headers)
 
 	for _, result := range results {
-		output = append(output, result.ToSlice())
+		output = append(output, toSlice(result))
 	}
 
 	outFile, fileErr := os.Create("simOutput.csv")
@@ -91,144 +161,4 @@ func resultsToCSV(results []result) (ok bool) {
 	outFile.Close()
 
 	return true
-}
-
-type result struct {
-	*instrument.Asset
-	BuyPrice, SellPrice *utils.DatedMetric
-	PctReturn           utils.Amount
-	Alpha               utils.Amount
-}
-
-func (result *result) update(holding *collection.LinkedHoldingList) {
-	// TODO
-}
-
-func (result *result) averageize() {
-	amtFilled := utils.Amount(result.Filled)
-	result.AvgBid = utils.DivideAmt(result.AvgBid, amtFilled)
-	result.AvgAsk = utils.DivideAmt(result.AvgAsk, amtFilled)
-
-	result.PctReturn = utils.DivideAmt((result.SellPrice.Amount - result.BuyPrice.Amount), result.BuyPrice.Amount)
-	return
-}
-
-// GetResults ...TODO
-func GetResults(l *collection.HoldingList, benchmark *benchmark.Index, outputFormat Fmt) {
-	var results []*result
-
-	for _, index := range l.Items() {
-		linkedList := l.GetByIndex(index)
-		ResultSet(linkedList)
-	}
-
-	benchmark.RLock()
-	for _, holding := range closedholdings {
-
-		if !findKey(holdingKeys, holding.Ticker) {
-			holdingKeys = append(holdingKeys, holding.Ticker)
-		}
-		for _, key := range holdingKeys {
-			security := benchmark.Securities[key]
-			filtered := filter(&closedholdings, key)
-			results = append(results, createResult(*filtered, security))
-		}
-	}
-	log.Println("Outputting results: ")
-	switch outputFormat {
-	case CSV:
-		resultsToCSV(results)
-
-	}
-}
-
-func ResultSet(l *collection.LinkedHoldingList) []*result {
-	var results []*result
-
-	for node := l.PeekFront(); node == nil; node = node.Next() {
-
-		new = &result{
-			Asset: &instrument.Asset{
-				Instrument: node.Instrument,
-				nTicks: 
-			},
-		}
-
-	}
-	// 	Asset: &instrument.NewAsset()
-	// 	Instrument: &instrument.NewInstrument(holding.Ticker, holding.Volume)
-
-	// 	Ticker:    holding.Ticker,
-	// 	Filled:    1,
-	// 	AvgVolume: holding.Volume,
-
-	// 	BuyValue: holding.BuyPrice.Amount * holding.Volume,
-	// 	EndValue: holding.SellPrice.Amount * holding.Volume,
-
-	// 	AvgBid: holding.AvgBid,
-	// 	MaxBid: holding.MaxBid,
-	// 	MinBid: holding.MinBid,
-
-	// 	AvgAsk: holding.AvgAsk,
-	// 	MaxAsk: holding.MaxAsk,
-	// 	MinAsk: holding.MinAsk,
-	// }
-	// return result
-}
-func createResult(holdings []holding.Holding, security *security.Security) result {
-	var holdingResult result
-
-	// loop through and update metrics accordingly
-	for i := 0; i < len(holdings); i++ {
-		if i == 0 {
-			holdingResult = newResult(holdings[i])
-		}
-		holdingResult.update(holdings[i])
-	}
-	holdingResult.averageize()
-
-	// if security == nil {
-	// 	holdingResult.Alpha = utils.Amount(0)
-	// 	return holdingResult
-	// }
-	// NOTE: this is NOT on an aggregate basis at the moment.
-	benchmarkReturn := utils.DivideAmt((security.LastAsk.Amount - security.BuyPrice.Amount), security.BuyPrice.Amount)
-	holdingResult.Alpha = holdingResult.PctReturn - benchmarkReturn
-	return holdingResult
-}
-
-// selection sort for positions.
-func selectionSort(A []*holding.Holding) []*holding.Holding {
-	for i := 0; i < len(A)-1; i++ {
-		min := i
-		for j := i + 1; j < len(A); j++ {
-			if A[j].Ticker < A[min].Ticker {
-				min = j
-			}
-		}
-		key := A[i]
-		A[i] = A[min]
-		A[min] = key
-	}
-	return A
-}
-
-func filter(positions *[]holding.Holding, key string) *[]holding.Holding {
-	filtered := make([]holding.Holding, 0)
-
-	for _, position := range *positions {
-		if position.Ticker == key {
-			filtered = append(filtered, position)
-		}
-	}
-	return &filtered
-}
-
-func findKey(A []string, toFind string) bool {
-	for _, key := range A {
-		if key == toFind {
-			return true
-		}
-	}
-	return false
 }

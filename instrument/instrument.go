@@ -67,7 +67,7 @@ func (i *Instrument) Update(t Tick) error {
 type Asset struct {
 	*Instrument
 
-	// AvgBid, AvgAsk   utils.Amount -> can be calculated
+	AvgBid, AvgAsk   utils.Amount
 	LastBid, LastAsk *utils.DatedMetric
 	MaxBid, MaxAsk   *utils.DatedMetric
 	MinBid, MinAsk   *utils.DatedMetric
@@ -86,7 +86,7 @@ func NewAsset(ticker string, bid, ask, volume utils.Amount, timestamp time.Time)
 	return &Asset{
 		Instrument: &Instrument{ticker: ticker, volume: volume, Nticks: 1},
 
-		// AvgBid: assetBid.Amount, AvgAsk: assetAsk.Amount,
+		AvgBid: assetBid.Amount, AvgAsk: assetAsk.Amount,
 		LastBid: assetBid, MaxBid: assetBid, MinBid: assetBid,
 		LastAsk: assetAsk, MaxAsk: assetAsk, MinAsk: assetAsk,
 	}
@@ -99,13 +99,13 @@ func (a Asset) Update(t Tick) error {
 // Update uses new tick data to update an asset's metrics.
 func (a *Asset) update(t Tick) error {
 	// update bid metrics
-	// a.AvgBid = utils.Avg(a.AvgBid, a.Nticks, t.Bid)
+	a.AvgBid = utils.Avg(a.AvgBid, a.Nticks, t.Bid)
 	a.LastBid = &utils.DatedMetric{Amount: t.Bid, Date: t.Timestamp}
 	a.MaxBid = utils.Max(a.MaxBid, t.Bid, t.Timestamp)
 	a.MinBid = utils.Min(a.MinBid, t.Bid, t.Timestamp)
 
 	// update ask metrics
-	// a.AvgAsk = utils.Avg(a.AvgAsk, a.Nticks, t.Ask)
+	a.AvgAsk = utils.Avg(a.AvgAsk, a.Nticks, t.Ask)
 	a.LastAsk = &utils.DatedMetric{Amount: t.Ask, Date: t.Timestamp}
 	a.MaxAsk = utils.Max(a.MaxAsk, t.Ask, t.Timestamp)
 	a.MinAsk = utils.Min(a.MinAsk, t.Ask, t.Timestamp)
