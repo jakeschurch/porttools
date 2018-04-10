@@ -1,13 +1,19 @@
 package porttools
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/jakeschurch/porttools/collection"
-	"github.com/jakeschurch/porttools/collection/portfolio"
 	"github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/order"
 	"github.com/jakeschurch/porttools/utils"
+)
+
+var (
+	// ErrNegativeVolume indicates that the processed order
+	// has too high of a volume to act upon.
+	ErrNegativeVolume = errors.New("not enough volume to fill order")
 )
 
 // OMS acts as an `Order Management System` to test trading signals and fill orders.
@@ -26,6 +32,9 @@ func NewOMS() *OMS {
 	return oms
 }
 
+// Insert checks to see if we can insert a new buy order into the OMS.
+// If it can, order will be inserted into oms, updates cash,
+// and stores new holding in Port.
 func (oms *OMS) Insert(o *order.Order) error {
 	var dxCash utils.Amount
 
@@ -36,48 +45,52 @@ func (oms *OMS) Insert(o *order.Order) error {
 	case false:
 		dxCash = o.Bid * o.Volume(0)
 	}
+	if err := oms.open.Insert(o); err != nil {
+		return err
+	}
 	oms.updateCash(dxCash)
-	return oms.open.Insert(o)
+	return Port.Insert(
+		instrument.NewHolding(o.Instrument, &utils.DatedMetric{o.Ask, o.Timestamp}),
+		o.Quote)
 }
 
-func (oms *OMS) Execute(node *collection.LinkedNode) {
+func (oms *OMS) Query(t instrument.Tick) error {
+	var entryOrder *order.Order
 
-}
-
-func (oms *OMS) Query(q *instrument.Quote) {
-
-	var orderList *collection.LinkedList
-	var openOrder *collection.LinkedNode
-	var entryOrder, exitOrder *order.Order
-	var err error
-
-	switch entryOrder, _ := strategy.CheckEntryLogic(q); entryOrder != nil {
+	switch entryOrder, _ = strategy.CheckEntryLogic(*t.Quote); entryOrder != nil {
 	case true:
 		oms.Insert(entryOrder)
 	case false: // do nothing if entry logic is not met.
 	}
+	return oms.queryOpenOrders(t)
+}
 
-	orderList, _ = oms.open.Get(q.Ticker())
-	for openOrder = orderList.PeekFront(); openOrder != nil; openOrder = openOrder.Next() {
+func (oms *OMS) queryOpenOrders(t instrument.Tick) error {
+	var orderList *collection.LinkedList
+	var openOrderNode *collection.LinkedNode
+	var exitOrder *order.Order
+	var err error
 
-		// TEMP: for now, do nothing with exitOrder
-		exitOrder, err = strategy.CheckExitLogic(openOrder.GetUnderlying().(order.Order))
-		switch err != nil {
-		case false:
-
-		case true: // do nothing if invalid exit logic.
-
-		}
+	if orderList, err = oms.open.Get(t.Ticker()); err != nil {
+		return err
 	}
 
-}
+	for openOrderNode = orderList.PeekFront(); openOrderNode != nil; openOrderNode = openOrderNode.Next() {
 
-func (oms *OMS) QueryBuyOrder() {
+		// TEMP: for now, do nothing with exitOrder
+		exitOrder, err = strategy.CheckExitLogic(openOrderNode.GetUnderlying().(order.Order), t)
 
-}
+		switch err != nil {
+		case false:
+			if err = oms.open.RemoveNode(openOrderNode); err != nil {
+				return err
+			}
+			oms.updateCash(exitOrder.Volume(0) * exitOrder.Bid)
 
-func (oms *OMS) QuerySellOrder() {
-
+		case true: // do nothing if invalid exit logic
+		}
+	}
+	return nil
 }
 
 func (oms *OMS) updateCash(dxCash utils.Amount) {
@@ -88,77 +101,48 @@ func (oms *OMS) updateCash(dxCash utils.Amount) {
 	return
 }
 
-func (oms *OMS) addOrder(newOrder *order.Order) (utils.Amount, error) {
-	oms.Lock()
-	oms.openOrders = append(oms.openOrders, newOrder)
-	oms.Unlock()
-	return -(newOrder.Volume * newOrder.Ask), nil
-}
-
-// TransactSell will sell an order and update a holding slice to reflect the changes.
-func (oms *OMS) TransactSell(order *order.Order, costMethod utils.CostMethod, port *portfolio.Portfolio) (utils.Amount, []instrument.Holding, error) {
-	var closedHoldings []instrument.Holding
-	var transactionAmount utils.Amount
+func (oms *OMS) executeSell(o order.Order) error {
+	var closed = make([]*instrument.Security, 0)
+	var list *collection.LinkedList
+	var toSell *collection.LinkedNode
 	var sellVolume utils.Amount
-	var pos *instrument.Holding
 	var err error
 
-	// loop over slice until order has been completely transacted
-	for order.Volume > 0 {
+	var orderVolume = o.Volume(0)
+	var ticker = o.Ticker()
 
-		pos, err = port.Active[order.Ticker].Peek(costMethod)
-		if err != nil {
-			// log.Println(err)
-			return transactionAmount, closedHoldings, err
-		}
-		switch pos.Volume >= order.Volume {
-		case true:
-			sellVolume = order.Volume
-		case false:
-			sellVolume = pos.Volume
-		}
-
-		// update cash and remove sold volume from Active holding
-		port.Active[order.Ticker].ApplyDelta(-sellVolume)
-		pos.Volume -= sellVolume
-
-		// create new closed position
-		bid := &utils.DatedMetric{Amount: order.Bid, Date: order.Datetime}
-		ask := &utils.DatedMetric{Amount: order.Ask, Date: order.Datetime}
-		newClosedPosition := instrument.Holding{
-			Ticker:   pos.Ticker,
-			Volume:   sellVolume,
-			NumTicks: pos.NumTicks,
-			LastBid:  bid, LastAsk: ask,
-			AvgBid: pos.AvgBid, AvgAsk: pos.AvgAsk,
-			MaxBid: pos.MaxBid, MaxAsk: pos.MaxAsk,
-			MinBid: pos.MinBid, MinAsk: pos.MinAsk,
-			BuyPrice: pos.BuyPrice, SellPrice: ask,
-		}
-		// add new closed position to closedHoldings slice
-		closedHoldings = append(closedHoldings, newClosedPosition)
-
-		// Update total of transaction utils.Amount
-		transactionAmount += (ask.Amount * sellVolume)
-
-		if pos.Volume == 0 {
-			port.Active[order.Ticker].Pop(costMethod)
-		}
-		order.Volume -= sellVolume
+	if list, err = Port.GetList(ticker); err != nil {
+		return err
 	}
-	oms.closeOutOrder(order)
 
-	return transactionAmount, closedHoldings, nil
+	if list.Volume(0) < o.Volume(0) {
+		return ErrNegativeVolume
+	}
+
+	// loop over slice until order has been completely crumpled
+	for orderVolume > 0 {
+		toSell = Port.Peek(ticker, costMethod)
+		holdingVolume := toSell.Volume(0)
+
+		switch holdingVolume >= orderVolume {
+		case true:
+			sellVolume = orderVolume
+		case false:
+			sellVolume = holdingVolume
+		}
+		closed = append(closed, list.PeekToSecurity(sellVolume, costMethod))
+
+		if toSell.Volume(0) == 0 {
+			list.Pop(costMethod)
+		}
+		orderVolume -= sellVolume
+	}
+	return positionLog.Insert(closed...)
 }
 
-func (oms *OMS) closeOutOrder(closedOrder *order.Order) {
-	orders := make([]*order.Order, 0)
-	oms.Lock()
-	for _, order := range oms.openOrders {
-		if order != closedOrder {
-			orders = append(orders, order)
-		}
-	}
-	oms.openOrders = orders
-	oms.Unlock()
+func (oms *OMS) Cash() utils.Amount {
+	oms.mu.RLock()
+	cash := oms.cash
+	oms.mu.RUnlock()
+	return cash
 }

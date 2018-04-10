@@ -19,7 +19,7 @@ var (
 // NewIndex returns a new Index type; typically used for benchmarking a portfolio.
 func NewIndex() *Index {
 	index := Index{
-		holdings: collection.NewHoldingList(),
+		Holdings: collection.NewHoldingList(),
 	}
 	return &index
 }
@@ -28,10 +28,18 @@ func NewIndex() *Index {
 // Index could refer to one Security or many.
 type Index struct {
 	mu       sync.RWMutex
-	holdings *collection.HoldingList
+	Holdings *collection.HoldingList
 }
 
 // Insert adds a new holding to an Index's holdings list.
-func (index *Index) Insert(h *instrument.Holding, tick instrument.Tick) error {
-	return index.holdings.InsertUpdate(h, tick)
+func (index *Index) insert(h *instrument.Holding, q instrument.Quote) error {
+	return index.Holdings.InsertUpdate(h, q)
+}
+
+// Update will use q to bring holding metrics up to date.
+// If Holdings.Update returns an error (empty list), insert new holding.
+func (index *Index) Update(q instrument.Quote) {
+	if err := index.Holdings.Update(q); err != nil {
+		index.Holdings.Insert(q)
+	}
 }

@@ -4,9 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/jakeschurch/porttools/order"
-
 	"github.com/jakeschurch/porttools/instrument"
+	"github.com/jakeschurch/porttools/order"
 	"github.com/jakeschurch/porttools/utils"
 )
 
@@ -26,9 +25,6 @@ var (
 
 	// ErrNoListExists indicates that a slice already exists
 	ErrNoListExists = errors.New("list with ticker does not exist")
-
-	// ErrNegativeVolume indicates negative position volume balance
-	ErrNegativeVolume = errors.New("position volume is less than 0")
 )
 
 // ------------------------------------------------------------------
@@ -200,6 +196,19 @@ func (l *LinkedList) PopToSecurity(c utils.CostMethod) *instrument.Security {
 	return security
 }
 
+func (l *LinkedList) PeekToSecurity(newVolume utils.Amount, c utils.CostMethod) *instrument.Security {
+	peeked := l.Peek(c)
+	peeked.Volume(-newVolume)
+
+	security := &instrument.Security{
+		Asset: *l.Asset,
+	}
+	security.Volume(-security.Volume(0) + newVolume)
+	security.Nticks = l.Nticks - peeked.Financial.(instrument.Holding).Nticks
+
+	return security
+}
+
 // Pop returns last element in linkedList.
 // Returns nil if no elements in list besides head and tail.
 func (l *LinkedList) Pop(c utils.CostMethod) *LinkedNode {
@@ -310,13 +319,13 @@ func NewHoldingList() *HoldingList {
 	}
 }
 
-func (l *HoldingList) Update(t instrument.Tick) error {
+func (l *HoldingList) Update(q instrument.Quote) error {
 	var index int16
 
-	if index = Get(l.cache, t.Ticker()); index == -1 {
+	if index = Get(l.cache, q.Ticker()); index == -1 {
 		return ErrNoListExists
 	}
-	return l.list[index].Update(t)
+	return l.list[index].Update(q)
 }
 
 // Get method for type HoldingList returns a LinkedList and error types.
@@ -391,7 +400,7 @@ func (l *HoldingList) Insert(f instrument.Financial) (err error) {
 	return nil
 }
 
-func (l *HoldingList) InsertUpdate(f instrument.Financial, t instrument.Tick) (err error) {
+func (l *HoldingList) InsertUpdate(f instrument.Financial, q instrument.Quote) (err error) {
 	var new bool
 	var index int16
 
@@ -418,7 +427,7 @@ func (l *HoldingList) InsertUpdate(f instrument.Financial, t instrument.Tick) (e
 	case false:
 		l.list[index].Push(NewLinkedNode(f))
 	}
-	l.GetByIndex(index).Update(t)
+	l.GetByIndex(index).Update(q)
 	return nil
 }
 

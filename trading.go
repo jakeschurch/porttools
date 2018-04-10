@@ -12,44 +12,38 @@ var (
 	ErrOrderNotValid = errors.New("Order does not meet criteria as a valid order")
 )
 
-type EntryCheck func(instrument.Quote, ...QueryFunc) (*order.Order, error)
-type ExitCheck func(order.Order, ...QueryFunc) (*order.Order, error)
-
 // Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
 type Algorithm interface {
-	EntryCheck() EntryCheck
-	ExitCheck() ExitCheck
+	EntryCheck(instrument.Quote) (*order.Order, error)
+	ExitCheck(order.Order, instrument.Tick) (*order.Order, error)
 }
 
 // ------------------------------------------------------------------
 
 // Strategy ...
 type Strategy struct {
-	Algorithm             Algorithm
-	entryQuery, exitQuery QueryFunc
+	Algorithm Algorithm
 }
 
 // NewStrategy creates a new Strategy instance used in the backtesting process.
-func NewStrategy(a Algorithm, entryQuery, exitQuery QueryFunc) Strategy {
+func NewStrategy(a Algorithm) Strategy {
 	return Strategy{
-		Algorithm:  a,
-		entryQuery: entryQuery,
-		exitQuery:  exitQuery,
+		Algorithm: a,
 	}
 }
 
 // CheckEntryLogic ...TODO
-func (s Strategy) CheckEntryLogic(q *instrument.Quote) (*order.Order, error) {
-	if order, err := s.EntryCheck(q, entryQuery); err != nil {
+func (s Strategy) CheckEntryLogic(q instrument.Quote) (entryOrder *order.Order, err error) {
+	if entryOrder, err = s.Algorithm.EntryCheck(q); err != nil {
 		return nil, ErrOrderNotValid
 	}
-	return order, nil
+	return entryOrder, nil
 }
 
 // CheckExitLogic ...TODO
-func (s Strategy) CheckExitLogic(o order.Order) (*order.Order, error) {
-	if order, err := s.ExitCheck(o, exitQuery); err != nil {
+func (s Strategy) CheckExitLogic(o order.Order, t instrument.Tick) (exitOrder *order.Order, err error) {
+	if exitOrder, err = s.Algorithm.ExitCheck(o, t); err != nil {
 		return nil, ErrOrderNotValid
 	}
-	return order, nil
+	return exitOrder, nil
 }

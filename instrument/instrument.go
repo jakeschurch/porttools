@@ -9,7 +9,7 @@ import (
 // Financial is an interface that is used for types that are embedded,
 // as well as update its own metrics.
 type Financial interface {
-	Update(Tick) error
+	Update(Quote) error
 	GetUnderlying() Financial
 	Volume(utils.Amount) utils.Amount
 	Ticker() string
@@ -53,7 +53,7 @@ func (i Instrument) Ticker() string {
 }
 
 // Update for an instrument is used to  implement Financial interface
-func (i Instrument) Update(t Tick) error {
+func (i Instrument) Update(q Quote) error {
 	return nil
 }
 
@@ -99,6 +99,10 @@ func (t *Tick) GetUnderlying() Financial {
 	return t.Quote
 }
 
+func (t *Tick) SetTicker(ticker string) {
+	t.ticker = ticker
+}
+
 // ------------------------------------------------------------------
 
 // Asset is tradeable instrument type.
@@ -130,23 +134,23 @@ func NewAsset(q *Quote) *Asset {
 	}
 }
 
-func (a Asset) Update(t Tick) error {
-	return a.update(t)
+func (a Asset) Update(q Quote) error {
+	return a.update(q)
 }
 
 // Update uses new tick data to update an asset's metrics.
-func (a *Asset) update(t Tick) error {
+func (a *Asset) update(q Quote) error {
 	// update bid metrics
-	a.AvgBid = utils.Avg(a.AvgBid, a.Nticks, t.Bid)
-	a.LastBid = &utils.DatedMetric{Amount: t.Bid, Date: t.Timestamp}
-	a.MaxBid = utils.Max(a.MaxBid, t.Bid, t.Timestamp)
-	a.MinBid = utils.Min(a.MinBid, t.Bid, t.Timestamp)
+	a.AvgBid = utils.Avg(a.AvgBid, a.Nticks, q.Bid)
+	a.LastBid = &utils.DatedMetric{Amount: q.Bid, Date: q.Timestamp}
+	a.MaxBid = utils.Max(a.MaxBid, q.Bid, q.Timestamp)
+	a.MinBid = utils.Min(a.MinBid, q.Bid, q.Timestamp)
 
 	// update ask metrics
-	a.AvgAsk = utils.Avg(a.AvgAsk, a.Nticks, t.Ask)
-	a.LastAsk = &utils.DatedMetric{Amount: t.Ask, Date: t.Timestamp}
-	a.MaxAsk = utils.Max(a.MaxAsk, t.Ask, t.Timestamp)
-	a.MinAsk = utils.Min(a.MinAsk, t.Ask, t.Timestamp)
+	a.AvgAsk = utils.Avg(a.AvgAsk, a.Nticks, q.Ask)
+	a.LastAsk = &utils.DatedMetric{Amount: q.Ask, Date: q.Timestamp}
+	a.MaxAsk = utils.Max(a.MaxAsk, q.Ask, q.Timestamp)
+	a.MinAsk = utils.Min(a.MinAsk, q.Ask, q.Timestamp)
 
 	a.Nticks++
 	return nil
@@ -161,9 +165,9 @@ type Holding struct {
 }
 
 // NewHolding instantities struct of type Holding.
-func NewHolding(q Quote, buyPrice *utils.DatedMetric) *Holding {
+func NewHolding(i Instrument, buyPrice *utils.DatedMetric) *Holding {
 	return &Holding{
-		Instrument: q.Instrument,
+		Instrument: i,
 		BuyPrice:   buyPrice,
 	}
 }

@@ -25,20 +25,20 @@ type Portfolio struct {
 func New() *Portfolio {
 	port := Portfolio{
 		active: collection.NewHoldingList(),
-		cash:   0,
 	}
 	return &port
 }
-func (port *Portfolio) Insert(h *instrument.Holding, t instrument.Tick) error {
-	return port.active.InsertUpdate(h, t)
+
+func (port *Portfolio) Insert(h *instrument.Holding, q instrument.Quote) error {
+	return port.active.InsertUpdate(h, q)
 }
 
 func (port *Portfolio) Delete(key string) error {
 	return port.active.Delete(key)
 }
 
-func (port *Portfolio) Update(t instrument.Tick) error {
-	return port.active.Update(t)
+func (port *Portfolio) Update(q instrument.Quote) error {
+	return port.active.Update(q)
 }
 
 // Pop returns a LinkedNode struct, will return element at head.next or tail
@@ -63,4 +63,24 @@ func (port *Portfolio) Peek(key string, c utils.CostMethod) *collection.LinkedNo
 		return nil
 	}
 	return list.Peek(c)
+}
+
+func (port *Portfolio) UpdateCash(delta utils.Amount) {
+	port.mu.Lock()
+	port.cash += delta
+	port.mu.Lock()
+}
+
+func (port *Portfolio) GetList(key string) (*collection.LinkedList, error) {
+	var list *collection.LinkedList
+	var err error
+
+	port.mu.RLock()
+	list, err = port.active.Get(key)
+	port.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
 }

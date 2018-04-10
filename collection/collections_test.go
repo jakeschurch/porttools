@@ -109,8 +109,8 @@ func mockLinkedList() *LinkedList {
 
 	return NewLinkedList(
 		instrument.Asset{
-			Instrument: mockHolding().Instrument,
-			LastAsk:    askDatedMetric, LastBid: bidDatedMetric,
+			Quote:   mockHolding().Instrument,
+			LastAsk: askDatedMetric, LastBid: bidDatedMetric,
 			MaxBid: bidDatedMetric, MaxAsk: askDatedMetric,
 			MinAsk: askDatedMetric, MinBid: bidDatedMetric})
 }
