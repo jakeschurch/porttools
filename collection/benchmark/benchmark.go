@@ -4,75 +4,42 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/jakeschurch/porttools/collection"
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/instrument/security"
 )
 
 var (
 	// ErrSecurityExists indicates that a security struct has already been allocated in an index
 	ErrSecurityExists = errors.New("Security exists in index")
 
-	// ErrNoSecurityExists indicates that a security struct has not been allocated in an index's securities map
+	// ErrNoSecurityExists indicates that a security struct has not been allocated in an index's holdings map
 	ErrNoSecurityExists = errors.New("Security does not exist in Securities map")
 )
 
 // NewIndex returns a new Index type; typically used for benchmarking a portfolio.
 func NewIndex() *Index {
 	index := Index{
-		Securities: make(map[string]*security.Security),
-		tickChan:   make(chan instrument.Tick),
-		errChan:    make(chan error),
+		Holdings: collection.NewHoldingList(),
 	}
-	go index.mux()
 	return &index
 }
 
 // Index struct allow for the use of a benchmark to compare financial performance,
 // Index could refer to one Security or many.
 type Index struct {
-	sync.RWMutex
-	Securities map[string]*security.Security
-	tickChan   chan instrument.Tick
-	errChan    chan error
+	mu       sync.RWMutex
+	Holdings *collection.HoldingList
 }
 
-func (index *Index) mux() {
-	var tick instrument.Tick
-	for {
-		select {
-		case tick = <-index.tickChan:
-			index.errChan <- index.updateMetrics(tick)
-		}
+// Insert adds a new holding to an Index's holdings list.
+func (index *Index) insert(h *instrument.Holding, q instrument.Quote) error {
+	return index.Holdings.InsertUpdate(h, q)
+}
+
+// Update will use q to bring holding metrics up to date.
+// If Holdings.Update returns an error (empty list), insert new holding.
+func (index *Index) Update(q instrument.Quote) {
+	if err := index.Holdings.Update(q); err != nil {
+		index.Holdings.Insert(q)
 	}
-}
-
-// AddNew adds a new security to an Index's Securities map.
-func (index *Index) AddNew(tick instrument.Tick) error {
-	index.Lock()
-	if _, exists := index.Securities[tick.Ticker]; exists {
-		return ErrSecurityExists
-	}
-	index.Securities[tick.Ticker] = security.New(tick)
-	index.Unlock()
-
-	return nil
-}
-
-// UpdateMetrics ...
-func (index *Index) UpdateMetrics(tick instrument.Tick) error {
-	index.tickChan <- tick
-	return <-index.errChan
-}
-
-// UpdateMetrics passes instrument.Tick to appropriate Security in securities map.
-// Returns error if security not found in map.
-func (index *Index) updateMetrics(tick instrument.Tick) error {
-	index.RLock()
-	security, exists := index.Securities[tick.Ticker]
-	index.RUnlock()
-	if !exists {
-		return ErrNoSecurityExists
-	}
-	security.UpdateMetrics(tick)
-	return nil
 }

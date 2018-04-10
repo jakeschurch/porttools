@@ -61,7 +61,7 @@ type Config struct {
 		BarRate    time.Duration    `json:"barRate"`
 		Costmethod utils.CostMethod `json:"costmethod"`
 		// TODO: REVIEW good idea to use go generate for output format and other consts?
-		OutFmt output.Fmt `json:"outFmt"`
+		OutFmt output.Format `json:"outFmt"`
 		//  IngestRate measures how many bars to skip
 		// IngestRate BarDuration `json:"ingestRate"`
 	} `json:"simulation"`
