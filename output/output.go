@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jakeschurch/porttools/collection"
-	"github.com/jakeschurch/porttools/instrument"
+	ins "github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/utils"
 )
 
@@ -37,6 +37,7 @@ type PositionLog struct {
 	ClosedPositions *collection.HoldingList
 }
 
+// NewPositionLog returns a new PositionLog
 func NewPositionLog() *PositionLog {
 	p := PositionLog{
 		ClosedPositions: collection.NewHoldingList(),
@@ -45,7 +46,7 @@ func NewPositionLog() *PositionLog {
 }
 
 // Insert adds a closed holding to the performance log's closed holdings slice.
-func (p *PositionLog) Insert(securities ...*instrument.Security) error {
+func (p *PositionLog) Insert(securities ...*ins.Security) error {
 	var err error
 
 	for i := range securities {
@@ -59,7 +60,7 @@ func (p *PositionLog) Insert(securities ...*instrument.Security) error {
 // ------------------------------------------------------------------
 
 type result struct {
-	*instrument.Security
+	*ins.Security
 	PctReturn utils.Amount
 	Alpha     utils.Amount
 }
@@ -77,14 +78,14 @@ func toSlice(result *result) []string {
 	fmtString := time.RFC1123
 
 	return []string{
-		result.Ticker(),
-		string(result.Volume(0)),
-		string(result.Nticks),
+		result.Ticker,
+		string(result.Volume),
+		string(result.Nseen),
 
-		result.BuyPrice.Date.Format(fmtString),
-		result.BuyPrice.Amount.String(),
-		result.SellPrice.Date.Format(fmtString),
-		result.SellPrice.Amount.String(),
+		result.Timestamp.Format(fmtString),
+		result.Bid.String(),
+		result.SellDate.Format(fmtString),
+		result.Ask.String(),
 
 		result.MaxBid.Amount.String(),
 		result.AvgBid.String(),
@@ -120,26 +121,23 @@ func GetResults(outputFormat Format, closed *collection.HoldingList, benchmark *
 
 func resultSet(closed, index *collection.LinkedList) []*result {
 	var results []*result
-	var security, benchmarkSecurity instrument.Security
-	var node = closed.PeekFront()
+	var s ins.Security
 
-	switch node.Financial.(type) {
-	case instrument.Security:
-		benchmarkSecurity = index.PeekFront().GetUnderlying().(instrument.Security)
-	default:
+	var benchmarkSecurity, ok = index.PeekFront().Data.(ins.Security)
+	if !ok {
 		return nil
 	}
 
 	for node := closed.PeekFront(); node == nil; node = node.Next() {
-		security = node.GetUnderlying().(instrument.Security)
-		pctReturn := utils.DivideAmt(security.SellPrice.Amount-security.BuyPrice.Amount, security.BuyPrice.Amount)
+		s = node.Data.(ins.Security)
+		pctReturn := utils.DivideAmt(s.Ask-s.Bid, s.Bid)
 
 		newResult := &result{
-			Security:  &security,
+			Security:  &s,
 			PctReturn: pctReturn,
-			Alpha:     pctReturn - utils.DivideAmt(benchmarkSecurity.SellPrice.Amount-security.BuyPrice.Amount, security.BuyPrice.Amount),
+			Alpha:     pctReturn - utils.DivideAmt(benchmarkSecurity.Ask-s.Bid, s.Bid),
 		}
-		newResult.Nticks = closed.Nticks - newResult.Instrument.Nticks
+		newResult.Nseen = closed.Nticks - newResult.Nseen
 		results = append(results, newResult)
 	}
 	return results

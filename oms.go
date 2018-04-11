@@ -5,8 +5,7 @@ import (
 	"sync"
 
 	"github.com/jakeschurch/porttools/collection"
-	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/order"
+	ins "github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/utils"
 )
 
@@ -35,57 +34,56 @@ func NewOMS() *OMS {
 // Insert checks to see if we can insert a new buy order into the OMS.
 // If it can, order will be inserted into oms, updates cash,
 // and stores new holding in Port.
-func (oms *OMS) Insert(o *order.Order) error {
+func (oms *OMS) Insert(o *ins.Order) error {
 	var dxCash utils.Amount
 
 	switch o.Buy {
 	case true:
-		dxCash = -o.Ask * o.Volume(0)
+		dxCash = -o.Ask * o.Volume
 
 	case false:
-		dxCash = o.Bid * o.Volume(0)
+		dxCash = o.Bid * o.Volume
 	}
 	if err := oms.open.Insert(o); err != nil {
 		return err
 	}
 	oms.updateCash(dxCash)
-	return Port.Insert(
-		instrument.NewHolding(o.Instrument, &utils.DatedMetric{o.Ask, o.Timestamp}),
-		o.Quote)
+	i := ins.NewHolding(*o.Quote)
+	return Port.Insert(i, *o.Quote)
 }
 
-func (oms *OMS) Query(t instrument.Tick) error {
-	var entryOrder *order.Order
+func (oms *OMS) Query(t *ins.Tick) error {
+	var entryOrder *ins.Order
 
 	switch entryOrder, _ = strategy.CheckEntryLogic(*t.Quote); entryOrder != nil {
 	case true:
 		oms.Insert(entryOrder)
 	case false: // do nothing if entry logic is not met.
 	}
-	return oms.queryOpenOrders(t)
+	return oms.queryOpenOrders(*t)
 }
 
-func (oms *OMS) queryOpenOrders(t instrument.Tick) error {
+func (oms *OMS) queryOpenOrders(t ins.Tick) error {
 	var orderList *collection.LinkedList
 	var openOrderNode *collection.LinkedNode
-	var exitOrder *order.Order
+	var exitOrder *ins.Order
 	var err error
 
-	if orderList, err = oms.open.Get(t.Ticker()); err != nil {
+	if orderList, err = oms.open.Get(t.Ticker); err != nil {
 		return err
 	}
 
 	for openOrderNode = orderList.PeekFront(); openOrderNode != nil; openOrderNode = openOrderNode.Next() {
 
 		// TEMP: for now, do nothing with exitOrder
-		exitOrder, err = strategy.CheckExitLogic(openOrderNode.GetUnderlying().(order.Order), t)
+		exitOrder, err = strategy.CheckExitLogic(openOrderNode.Data.(ins.Order), t)
 
 		switch err != nil {
 		case false:
 			if err = oms.open.RemoveNode(openOrderNode); err != nil {
 				return err
 			}
-			oms.updateCash(exitOrder.Volume(0) * exitOrder.Bid)
+			oms.updateCash(exitOrder.Volume * exitOrder.Bid)
 
 		case true: // do nothing if invalid exit logic
 		}
@@ -101,28 +99,29 @@ func (oms *OMS) updateCash(dxCash utils.Amount) {
 	return
 }
 
-func (oms *OMS) executeSell(o order.Order) error {
-	var closed = make([]*instrument.Security, 0)
+func (oms *OMS) executeSell(o ins.Order) error {
+	var closed = make([]*ins.Security, 0)
 	var list *collection.LinkedList
+	var closedSecurity *ins.Security
 	var toSell *collection.LinkedNode
 	var sellVolume utils.Amount
 	var err error
 
-	var orderVolume = o.Volume(0)
-	var ticker = o.Ticker()
+	var orderVolume = o.Volume
+	var ticker = o.Ticker
 
 	if list, err = Port.GetList(ticker); err != nil {
 		return err
 	}
 
-	if list.Volume(0) < o.Volume(0) {
+	if list.TotalVolume < o.Volume {
 		return ErrNegativeVolume
 	}
 
 	// loop over slice until order has been completely crumpled
 	for orderVolume > 0 {
 		toSell = Port.Peek(ticker, costMethod)
-		holdingVolume := toSell.Volume(0)
+		holdingVolume := toSell.Data.(ins.Quote).Volume
 
 		switch holdingVolume >= orderVolume {
 		case true:
@@ -130,9 +129,14 @@ func (oms *OMS) executeSell(o order.Order) error {
 		case false:
 			sellVolume = holdingVolume
 		}
-		closed = append(closed, list.PeekToSecurity(sellVolume, costMethod))
 
-		if toSell.Volume(0) == 0 {
+		if closedSecurity, err = list.PeekToSecurity(costMethod, o); err != nil {
+			return nil
+		}
+
+		closed = append(closed, closedSecurity)
+
+		if toSell.Data.(ins.Quote).Volume == 0 {
 			list.Pop(costMethod)
 		}
 		orderVolume -= sellVolume

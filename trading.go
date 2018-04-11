@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/order"
 )
 
 var (
@@ -14,8 +13,8 @@ var (
 
 // Algorithm is an interface that needs to be implemented in the pipeline by a user to fill orders based on the conditions that they specify.
 type Algorithm interface {
-	EntryCheck(instrument.Quote) (*order.Order, error)
-	ExitCheck(order.Order, instrument.Tick) (*order.Order, error)
+	EntryCheck(instrument.Quote) (*instrument.Order, error)
+	ExitCheck(instrument.Order, instrument.Tick) (*instrument.Order, error)
 }
 
 // ------------------------------------------------------------------
@@ -26,14 +25,14 @@ type Strategy struct {
 }
 
 // NewStrategy creates a new Strategy instance used in the backtesting process.
-func NewStrategy(a Algorithm) Strategy {
-	return Strategy{
+func NewStrategy(a Algorithm) {
+	strategy = Strategy{
 		Algorithm: a,
 	}
 }
 
 // CheckEntryLogic ...TODO
-func (s Strategy) CheckEntryLogic(q instrument.Quote) (entryOrder *order.Order, err error) {
+func (s Strategy) CheckEntryLogic(q instrument.Quote) (entryOrder *instrument.Order, err error) {
 	if entryOrder, err = s.Algorithm.EntryCheck(q); err != nil {
 		return nil, ErrOrderNotValid
 	}
@@ -41,7 +40,7 @@ func (s Strategy) CheckEntryLogic(q instrument.Quote) (entryOrder *order.Order, 
 }
 
 // CheckExitLogic ...TODO
-func (s Strategy) CheckExitLogic(o order.Order, t instrument.Tick) (exitOrder *order.Order, err error) {
+func (s Strategy) CheckExitLogic(o instrument.Order, t instrument.Tick) (exitOrder *instrument.Order, err error) {
 	if exitOrder, err = s.Algorithm.ExitCheck(o, t); err != nil {
 		return nil, ErrOrderNotValid
 	}

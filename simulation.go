@@ -46,7 +46,9 @@ func init() {
 // NewSimulation is a constructor for the Simulation data type,
 // and a pre-processor function for the embedded types.
 func NewSimulation(file string) (*Simulation, error) {
-	simConfig, simConfigErr := config.Load(file)
+	var simConfigErr error
+
+	simConfig, simConfigErr = config.Load(file)
 	if simConfigErr != nil {
 		log.Fatal("Config error reached: ", simConfigErr)
 		return nil, simConfigErr
@@ -149,7 +151,7 @@ func fileInfo() (string, time.Time) {
 // Process simulates tick data going through our simulation pipeline
 func (sim *Simulation) process(t *instrument.Tick) error {
 
-	Oms.Query(*t)
+	Oms.Query(t)
 
 	Port.Update(*t.Quote)
 
@@ -229,7 +231,7 @@ func (worker *worker) produce(done chan struct{}, r io.ReadSeeker) {
 			}
 		}
 		record := strings.Split(line, "|")
-		if len(record) > 4 {
+		if len(record) >= 4 {
 			worker.dataChan <- record
 		}
 	}
@@ -243,11 +245,11 @@ func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	var tick *instrument.Tick
 
 	tick = new(instrument.Tick)
-	tick.SetTicker(record[worker.colCfg.tick])
+	tick.Ticker = record[worker.colCfg.tick]
 
 	bid, bidErr := strconv.ParseFloat(record[worker.colCfg.bid], 64)
 	if bid == 0 {
-		return tick, errors.New("bid Price could not be parsed")
+		return nil, errors.New("bid Price could not be parsed")
 	}
 	if bidErr != nil {
 		loadErr = errors.New("bid Price could not be parsed")
@@ -283,7 +285,7 @@ func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	tick.Timestamp = worker.colCfg.filedate.Add(tickDuration)
 
 	if parseErr != nil {
-		return tick, parseErr
+		return nil, parseErr
 	}
 	if loadErr != nil {
 		log.Fatal("record could not be loaded")

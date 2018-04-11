@@ -4,13 +4,43 @@ import (
 	"time"
 
 	"github.com/jakeschurch/porttools/utils"
+	"github.com/pkg/errors"
+)
+
+// ------------------------------------------------------------------
+var (
+	ErrNegativeVolume = errors.New("cannot have negative volume")
+
+	// ErrZeroVolume indicates a struct has a volume of 0 and should be deleted entirely.
+	ErrZeroVolume = errors.New("struct has volume of 0, struct no longer active")
 )
 
 // ------------------------------------------------------------------
 
 // Instrument is the base type of a financial widget.
 type Instrument interface {
-	Update(Quote)
+	Update(data Quote)
+}
+
+// SellOff a struct that satisfies the Instrument interface.
+// Returns a new Security struct and a pointer to the updated under send signal to remove if volume of 0.
+func SellOff(i Instrument, o Order, summ *AssetSumm) (*Security, error) {
+	var v = o.Volume
+	var sellData = &utils.DatedMetric{Amount: o.Ask, Date: o.Timestamp}
+
+	var quote, ok = i.(*Quote)
+	if !ok {
+		return nil, errors.New("quote cannot satisfy Instrument interface")
+	}
+
+	if quote.Volume -= o.Volume; quote.Volume == 0 {
+		return nil, errors.Wrap(ErrNegativeVolume, "of quote")
+	}
+	if summ.TotalVolume -= v; summ.TotalVolume == 0 {
+		return nil, errors.Wrap(ErrNegativeVolume, "of assetSumm")
+	}
+
+	return NewSecurity(sellData, NewHolding(*quote), summ), nil
 }
 
 // ------------------------------------------------------------------
@@ -19,18 +49,21 @@ type Quote struct {
 	Ticker           string
 	Volume, Bid, Ask utils.Amount
 	Timestamp        time.Time
+	nSeen            uint // used when
 }
 
 func NewQuote(ticker string, volume, bid, ask utils.Amount, ts time.Time) *Quote {
 	return &Quote{
 		Ticker: ticker, Volume: volume,
 		Bid: bid, Ask: ask, Timestamp: ts,
+		nSeen: 1,
 	}
 }
 
-func (q *Quote) Update(fed *Quote) {
-	q.Ask = fed.Ask
-	q.Bid = fed.Bid
+// Update quote's ask/bid fields based on other quote.
+func (q Quote) Update(data Quote) {
+	q.Ask = data.Ask
+	q.Bid = data.Bid
 }
 
 // ------------------------------------------------------------------
@@ -41,6 +74,7 @@ type Tick struct {
 	BidSize, AskSize utils.Amount
 }
 
+// NewTick creates new Tick.
 func NewTick(bidSz, askSz utils.Amount, q *Quote) *Tick {
 	return &Tick{
 		Quote:   q,
@@ -48,15 +82,16 @@ func NewTick(bidSz, askSz utils.Amount, q *Quote) *Tick {
 	}
 }
 
-func (t *Tick) Update(fed *Quote) {
-	t.Update(fed)
+// Update Tick from quote data.
+func (t Tick) Update(data Quote) {
+	t.Quote.Update(data)
 }
 
 // ------------------------------------------------------------------
 
 // AssetSumm reflects an Insturment's trading metrics.
 type AssetSumm struct {
-	nTicks                      uint
+	Nticks                      uint
 	TotalVolume, AvgBid, AvgAsk utils.Amount
 
 	MaxBid, MaxAsk *utils.DatedMetric
@@ -64,30 +99,36 @@ type AssetSumm struct {
 }
 
 // NewAssetSumm instantiaties a new struct of type AssetSumm.
-func NewAssetSumm(q *Quote) *AssetSumm {
+func NewAssetSumm(q Quote) *AssetSumm {
 	assetBid := &utils.DatedMetric{Amount: q.Bid, Date: q.Timestamp}
 	assetAsk := &utils.DatedMetric{Amount: q.Ask, Date: q.Timestamp}
 
 	return &AssetSumm{
-		nTicks: 1, TotalVolume: q.Volume,
+		Nticks: 1, TotalVolume: q.Volume,
 		AvgBid: assetBid.Amount, AvgAsk: assetAsk.Amount,
 		MaxBid: assetBid, MaxAsk: assetAsk,
 		MinBid: assetBid, MinAsk: assetAsk,
 	}
 }
 
-func (a *AssetSumm) Update(q Quote) {
+// Update Asset Summary metrics from quote data.
+func (a AssetSumm) Update(q Quote) {
 	// update bid metrics
-	a.AvgBid = utils.Avg(a.AvgBid, a.nTicks, q.Bid)
+	a.AvgBid = utils.Avg(a.AvgBid, a.Nticks, q.Bid)
 	a.MaxBid = utils.Max(a.MaxBid, q.Bid, q.Timestamp)
 	a.MinBid = utils.Min(a.MinBid, q.Bid, q.Timestamp)
 
 	// update ask metrics
-	a.AvgAsk = utils.Avg(a.AvgAsk, a.nTicks, q.Ask)
+	a.AvgAsk = utils.Avg(a.AvgAsk, a.Nticks, q.Ask)
 	a.MaxAsk = utils.Max(a.MaxAsk, q.Ask, q.Timestamp)
 	a.MinAsk = utils.Min(a.MinAsk, q.Ask, q.Timestamp)
 
-	a.nTicks++
+	a.Nticks++
+}
+
+// GetVolume returns total Volume.
+func (a AssetSumm) GetVolume() utils.Amount {
+	return a.TotalVolume
 }
 
 // ------------------------------------------------------------------
@@ -95,33 +136,15 @@ func (a *AssetSumm) Update(q Quote) {
 // Holding structs refer the holding of a financial asset.
 type Holding struct {
 	*Quote
-	nSeen uint
+	Nseen uint
 }
 
 // NewHolding instantities struct of type Holding.
 // Map Buy -> Bid, Sell -> Ask
 // Only open holdings/positions are allowed to be this type.
 // When partially/all sold off, becomes a struct.
-func NewHolding(q *Quote) *Holding {
-	return &Holding{
-		Quote: q,
-		nSeen: 0,
-	}
-}
-
-// SellOff a holding, return a new Security; send signal to remove if volume of 0.
-func (h *Holding) SellOff(v utils.Amount, summ *AssetSumm, sellData *utils.DatedMetric) (*Security, bool) {
-	var signal bool
-	var security = NewSecurity(sellData, h, summ)
-
-	summ.TotalVolume -= v
-	h.Volume -= v
-	if h.Volume == 0 {
-		signal = true
-	}
-	signal = false
-
-	return security, signal
+func NewHolding(q Quote) *Holding {
+	return &Holding{Quote: &q}
 }
 
 // ------------------------------------------------------------------
@@ -143,7 +166,7 @@ func NewSecurity(sellAt *utils.DatedMetric, h *Holding, summ *AssetSumm) *Securi
 		SellDate:  sellAt.Date,
 	}
 	s.Ask = sellAt.Amount
-	s.nTicks = s.nTicks - h.nSeen
+	s.Nticks = s.Nticks - h.nSeen
 
 	return s
 }

@@ -68,7 +68,7 @@ func (port *Portfolio) Peek(key string, c utils.CostMethod) *collection.LinkedNo
 func (port *Portfolio) UpdateCash(delta utils.Amount) {
 	port.mu.Lock()
 	port.cash += delta
-	port.mu.Lock()
+	port.mu.Unlock()
 }
 
 func (port *Portfolio) GetList(key string) (*collection.LinkedList, error) {

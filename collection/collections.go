@@ -4,11 +4,11 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/jakeschurch/porttools/instrument"
-	"github.com/jakeschurch/porttools/order"
+	ins "github.com/jakeschurch/porttools/instrument"
 	"github.com/jakeschurch/porttools/utils"
 )
 
+// Declare Errors
 var (
 	// ErrNodeNotFound indicates that a node could not be found in a linked list.
 	ErrNodeNotFound = errors.New("node not foudn in linked list")
@@ -99,36 +99,38 @@ func Put(l *LookupCache, key string) (value int16, err error) {
 
 // LinkedNode is the linked list node implementation of a holding struct.
 type LinkedNode struct {
-	instrument.Financial
+	Data ins.Instrument
 	next *LinkedNode
 	prev *LinkedNode
 }
 
-func NewLinkedNode(f instrument.Financial) *LinkedNode {
+// NewLinkedNode creates a Linked List Element.
+func NewLinkedNode(data ins.Instrument) *LinkedNode {
 	return &LinkedNode{
-		Financial: f,
-		next:      nil,
-		prev:      nil,
+		Data: data,
+		next: nil,
+		prev: nil,
 	}
 }
 
-func (node *LinkedNode) GetUnderlying() instrument.Financial {
+// func (node *LinkedNode) GetUnderlying() ins.Instrument {
 
-	switch node.Financial.(type) {
-	case instrument.Holding:
-		return instrument.Holding(node.Financial.(instrument.Holding))
+// 	switch node.Financial.(type) {
+// 	case ins.Holding:
+// 		return ins.Holding(node.Financial.(ins.Holding))
 
-	case instrument.Security:
-		return instrument.Security(node.Financial.(instrument.Security))
+// 	case ins.Security:
+// 		return ins.Security(node.Financial.(ins.Security))
 
-	case order.Order:
-		return order.Order(node.Financial.(order.Order))
+// 	case ins.Order:
+// 		return ins.Order(node.Financial.(ins.Order))
 
-	default:
-		return nil
-	}
-}
+// 	default:
+// 		return nil
+// 	}
+// }
 
+// Next returns pointer to next-point element, or nil.
 func (node *LinkedNode) Next() *LinkedNode {
 	return node.next
 }
@@ -138,41 +140,37 @@ func (node *LinkedNode) Next() *LinkedNode {
 // LinkedList is a collection of holding elements,
 // as well as aggregate metrics on the collection of holdings.
 type LinkedList struct {
-	*instrument.Asset
+	*ins.AssetSumm
 	mu   sync.RWMutex
 	head *LinkedNode
 	tail *LinkedNode
 }
 
 // NewLinkedList instantiates a new struct of type LinkedList.
-func NewLinkedList(f instrument.Financial) *LinkedList {
-	var asset instrument.Asset
-
-	switch f.(type) {
-	case instrument.Asset:
-		asset = f.(instrument.Asset)
-
-	case instrument.Security:
-		asset = f.(instrument.Security).GetUnderlying().(instrument.Asset)
-	}
+func NewLinkedList(a ins.AssetSumm, i ins.Instrument) *LinkedList {
 
 	l := &LinkedList{
-		Asset: &asset,
-		head:  new(LinkedNode),
-		tail:  NewLinkedNode(f),
+		AssetSumm: &a,
+		head:      new(LinkedNode),
+		tail:      NewLinkedNode(i),
 	}
 	l.head.next = l.tail
 	l.tail.prev = l.head
+
+	l.TotalVolume += i.(ins.Quote).Volume
 
 	return l
 }
 
 // Push inserts a new element
-func (l *LinkedList) Push(f instrument.Financial) {
-	var last *LinkedNode
+func (l *LinkedList) Push(i ins.Instrument) {
+	var last, node *LinkedNode
 
-	l.Volume(f.Volume(0))
-	node := NewLinkedNode(f)
+	l.mu.Lock()
+	l.TotalVolume += i.(ins.Quote).Volume
+	l.mu.Unlock()
+
+	node = NewLinkedNode(i)
 
 	switch l.head.next == nil {
 	case true:
@@ -185,28 +183,24 @@ func (l *LinkedList) Push(f instrument.Financial) {
 	l.tail = last
 }
 
-func (l *LinkedList) PopToSecurity(c utils.CostMethod) *instrument.Security {
-	popped := l.Pop(c)
-	security := &instrument.Security{
-		Asset: *l.Asset,
-	}
-	security.Volume(-security.Volume(0) + popped.Volume(0))
-	security.Nticks = l.Nticks - popped.Financial.(instrument.Holding).Nticks
+func (l *LinkedList) PopToSecurity(c utils.CostMethod, o ins.Order) (*ins.Security, error) {
+	var popped *LinkedNode
 
-	return security
+	if popped = l.Pop(c); popped == nil {
+		return nil, nil
+	}
+
+	return ins.SellOff(popped.Data, o, l.AssetSumm)
 }
 
-func (l *LinkedList) PeekToSecurity(newVolume utils.Amount, c utils.CostMethod) *instrument.Security {
-	peeked := l.Peek(c)
-	peeked.Volume(-newVolume)
+func (l *LinkedList) PeekToSecurity(c utils.CostMethod, o ins.Order) (*ins.Security, error) {
+	var peeked *LinkedNode
 
-	security := &instrument.Security{
-		Asset: *l.Asset,
+	if peeked = l.Peek(c); peeked == nil {
+		return nil, nil
 	}
-	security.Volume(-security.Volume(0) + newVolume)
-	security.Nticks = l.Nticks - peeked.Financial.(instrument.Holding).Nticks
 
-	return security
+	return ins.SellOff(peeked.Data, o, l.AssetSumm)
 }
 
 // Pop returns last element in linkedList.
@@ -228,7 +222,7 @@ func (l *LinkedList) pop() *LinkedNode {
 	l.tail = last.prev
 	l.tail.next = nil
 
-	l.Volume(-last.Volume(0))
+	l.TotalVolume -= last.Data.(ins.Quote).Volume
 	return last
 }
 
@@ -244,7 +238,7 @@ func (l *LinkedList) PopFront() *LinkedNode {
 	first.next.prev = l.head
 
 	l.mu.Lock()
-	l.Volume(-first.Volume(0))
+	l.TotalVolume -= first.Data.(ins.Quote).Volume
 	l.mu.Unlock()
 
 	return first
@@ -288,7 +282,7 @@ func (l *LinkedList) remove(node *LinkedNode) error {
 			next.prev.next = next.next
 			next.next.prev = next.prev
 
-			l.Volume(-next.Volume(0))
+			l.TotalVolume -= next.Data.(ins.Quote).Volume
 			//  linkedList
 			if l.head.next == nil {
 				return ErrEmptyList
@@ -314,18 +308,19 @@ type HoldingList struct {
 func NewHoldingList() *HoldingList {
 	return &HoldingList{
 		cache: NewLookupCache(),
-		list:  make([]*LinkedList, 0),
+		list:  make([]*LinkedList, 1),
 		len:   0,
 	}
 }
 
-func (l *HoldingList) Update(q instrument.Quote) error {
+func (l *HoldingList) Update(q ins.Quote) error {
 	var index int16
 
-	if index = Get(l.cache, q.Ticker()); index == -1 {
+	if index = Get(l.cache, q.Ticker); index == -1 {
 		return ErrNoListExists
 	}
-	return l.list[index].Update(q)
+	l.list[index].Update(q)
+	return nil
 }
 
 // Get method for type HoldingList returns a LinkedList and error types.
@@ -346,7 +341,7 @@ func (l *HoldingList) RemoveNode(node *LinkedNode) error {
 	var list *LinkedList
 	var err error
 
-	if list, err = l.Get(node.Ticker()); err != nil {
+	if list, err = l.Get(node.Data.(ins.Quote).Ticker); err != nil {
 		if err == ErrNoListExists {
 			return nil
 		}
@@ -354,7 +349,7 @@ func (l *HoldingList) RemoveNode(node *LinkedNode) error {
 	}
 	if err = list.remove(node); err != nil {
 		if err == ErrEmptyList {
-			return l.Delete(node.Ticker())
+			return l.Delete(node.Data.(ins.Quote).Ticker)
 		}
 		return err
 	}
@@ -370,11 +365,11 @@ func (l *HoldingList) GetByIndex(index int16) *LinkedList {
 }
 
 // Insert adds a new node to a HoldingList's linked list.
-func (l *HoldingList) Insert(f instrument.Financial) (err error) {
+func (l *HoldingList) Insert(i ins.Instrument) (err error) {
 	var new bool
 	var index int16
 
-	if index, err = Put(l.cache, f.Ticker()); err != ErrKeyExists {
+	if index, err = Put(l.cache, i.(ins.Quote).Ticker); err != ErrKeyExists {
 		new = true
 	}
 
@@ -393,18 +388,19 @@ func (l *HoldingList) Insert(f instrument.Financial) (err error) {
 	// ... or if we can just push new node.
 	switch new {
 	case true:
-		l.list[index] = NewLinkedList(f)
+		l.list[index] = NewLinkedList(
+			*ins.NewAssetSumm(i.(ins.Quote)), i)
 	case false:
-		l.list[index].Push(NewLinkedNode(f))
+		l.list[index].Push(i)
 	}
 	return nil
 }
 
-func (l *HoldingList) InsertUpdate(f instrument.Financial, q instrument.Quote) (err error) {
+func (l *HoldingList) InsertUpdate(i ins.Instrument, q ins.Quote) (err error) {
 	var new bool
 	var index int16
 
-	if index, err = Put(l.cache, f.Ticker()); err != ErrKeyExists {
+	if index, err = Put(l.cache, i.(ins.Quote).Ticker); err != ErrKeyExists {
 		new = true
 	}
 
@@ -423,9 +419,11 @@ func (l *HoldingList) InsertUpdate(f instrument.Financial, q instrument.Quote) (
 	// ... or if we can just push new node.
 	switch new {
 	case true:
-		l.list[index] = NewLinkedList(f)
+		l.list[index] = NewLinkedList(
+			*ins.NewAssetSumm(i.(ins.Quote)), i,
+		)
 	case false:
-		l.list[index].Push(NewLinkedNode(f))
+		l.list[index].Push(i)
 	}
 	l.GetByIndex(index).Update(q)
 	return nil

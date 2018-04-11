@@ -13,20 +13,20 @@ import (
 // NOTE: In a contemporary electronic market (circa 2009), low latency trade processing time was qualified as under 10 milliseconds, and ultra-low latency as under 1 millisecond
 
 // Load returns a config item.
-func Load(filename string) (*Config, error) {
-	var config *Config
+func Load(filename string) (Config, error) {
+	var cfg Config
 
 	file, fileErr := os.Open(filename)
 	defer file.Close()
 	if fileErr != nil {
-		return nil, fileErr
+		return cfg, fileErr
 	}
 	decoder := json.NewDecoder(file)
-	if decodeErr := decoder.Decode(&config); decodeErr != nil {
+	if decodeErr := decoder.Decode(&cfg); decodeErr != nil {
 		log.Fatal("Could not read config file")
-		return nil, decodeErr
+		return cfg, decodeErr
 	}
-	return config, nil
+	return cfg, nil
 }
 
 // Config is used as a struct store store configuration data in.
