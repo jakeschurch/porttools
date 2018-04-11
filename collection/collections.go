@@ -2,6 +2,7 @@ package collection
 
 import (
 	"errors"
+	"log"
 	"sync"
 
 	ins "github.com/jakeschurch/porttools/instrument"
@@ -81,9 +82,8 @@ func Put(l *LookupCache, key string) (value int16, err error) {
 	}
 
 	l.mu.Lock()
-	len := len(l.openSlots)
 
-	if len > 0 {
+	if len(l.openSlots) > 0 {
 		value, l.openSlots = l.openSlots[0], l.openSlots[1:]
 	} else {
 		l.last++
@@ -93,6 +93,15 @@ func Put(l *LookupCache, key string) (value int16, err error) {
 	l.mu.Unlock()
 
 	return value, nil
+}
+
+func AddOpenSlots(l *LookupCache, slots ...int16) {
+	l.mu.Lock()
+	for n := range slots {
+		l.openSlots = append(l.openSlots, slots[n])
+		l.last++
+	}
+	l.mu.Unlock()
 }
 
 // ------------------------------------------------------------------
@@ -112,23 +121,6 @@ func NewLinkedNode(data ins.Instrument) *LinkedNode {
 		prev: nil,
 	}
 }
-
-// func (node *LinkedNode) GetUnderlying() ins.Instrument {
-
-// 	switch node.Financial.(type) {
-// 	case ins.Holding:
-// 		return ins.Holding(node.Financial.(ins.Holding))
-
-// 	case ins.Security:
-// 		return ins.Security(node.Financial.(ins.Security))
-
-// 	case ins.Order:
-// 		return ins.Order(node.Financial.(ins.Order))
-
-// 	default:
-// 		return nil
-// 	}
-// }
 
 // Next returns pointer to next-point element, or nil.
 func (node *LinkedNode) Next() *LinkedNode {
@@ -157,7 +149,7 @@ func NewLinkedList(a ins.AssetSumm, i ins.Instrument) *LinkedList {
 	l.head.next = l.tail
 	l.tail.prev = l.head
 
-	l.TotalVolume += i.(ins.Quote).Volume
+	l.TotalVolume += ins.ExtractQuote(i).Volume
 
 	return l
 }
@@ -167,7 +159,7 @@ func (l *LinkedList) Push(i ins.Instrument) {
 	var last, node *LinkedNode
 
 	l.mu.Lock()
-	l.TotalVolume += i.(ins.Quote).Volume
+	l.TotalVolume += ins.ExtractQuote(i).Volume
 	l.mu.Unlock()
 
 	node = NewLinkedNode(i)
@@ -222,7 +214,7 @@ func (l *LinkedList) pop() *LinkedNode {
 	l.tail = last.prev
 	l.tail.next = nil
 
-	l.TotalVolume -= last.Data.(ins.Quote).Volume
+	l.TotalVolume -= ins.ExtractQuote(last.Data).Volume
 	return last
 }
 
@@ -282,7 +274,7 @@ func (l *LinkedList) remove(node *LinkedNode) error {
 			next.prev.next = next.next
 			next.next.prev = next.prev
 
-			l.TotalVolume -= next.Data.(ins.Quote).Volume
+			l.TotalVolume -= ins.ExtractQuote(next.Data).Volume
 			//  linkedList
 			if l.head.next == nil {
 				return ErrEmptyList
@@ -319,7 +311,10 @@ func (l *HoldingList) Update(q ins.Quote) error {
 	if index = Get(l.cache, q.Ticker); index == -1 {
 		return ErrNoListExists
 	}
-	l.list[index].Update(q)
+	if l.list[index] != nil {
+		l.list[index].AssetSumm.Update(q)
+		return nil
+	}
 	return nil
 }
 
@@ -341,7 +336,7 @@ func (l *HoldingList) RemoveNode(node *LinkedNode) error {
 	var list *LinkedList
 	var err error
 
-	if list, err = l.Get(node.Data.(ins.Quote).Ticker); err != nil {
+	if list, err = l.Get(ins.ExtractQuote(node.Data).Ticker); err != nil {
 		if err == ErrNoListExists {
 			return nil
 		}
@@ -365,22 +360,28 @@ func (l *HoldingList) GetByIndex(index int16) *LinkedList {
 }
 
 // Insert adds a new node to a HoldingList's linked list.
-func (l *HoldingList) Insert(i ins.Instrument) (err error) {
+func (l *HoldingList) Insert(i ins.Instrument) error {
 	var new bool
-	var index int16
-
-	if index, err = Put(l.cache, i.(ins.Quote).Ticker); err != ErrKeyExists {
+	var quote = *ins.ExtractQuote(i)
+	var index, err = Put(l.cache, quote.Ticker)
+	if err != ErrKeyExists {
 		new = true
 	}
-
 	// see if we can place new holding in open slot
 	// ... or if we have to allocate new space.
 	l.mu.Lock()
-	if index > l.len {
-		l.list = append(make([]*LinkedList, (index+1)*2), l.list...)
+	if index >= l.len || l.len == 0 {
+		oldLen := l.len
+		log.Print(oldLen)
 		l.len = (index + 1) * 2
-	} else {
-		l.len++
+		l.list = append(make([]*LinkedList, l.len+1), l.list...)
+
+		var tempList = make([]int16, 0)
+		var n int16
+		for n = oldLen + 1; n < l.len; n++ {
+			tempList = append(tempList, n)
+		}
+		AddOpenSlots(l.cache, tempList...)
 	}
 	l.mu.Unlock()
 
@@ -388,8 +389,9 @@ func (l *HoldingList) Insert(i ins.Instrument) (err error) {
 	// ... or if we can just push new node.
 	switch new {
 	case true:
-		l.list[index] = NewLinkedList(
-			*ins.NewAssetSumm(i.(ins.Quote)), i)
+		quote := *ins.ExtractQuote(i)
+		assetSumm := *ins.NewAssetSumm(quote)
+		l.list[index] = NewLinkedList(assetSumm, i)
 	case false:
 		l.list[index].Push(i)
 	}
@@ -400,18 +402,16 @@ func (l *HoldingList) InsertUpdate(i ins.Instrument, q ins.Quote) (err error) {
 	var new bool
 	var index int16
 
-	if index, err = Put(l.cache, i.(ins.Quote).Ticker); err != ErrKeyExists {
+	if index, err = Put(l.cache, ins.ExtractQuote(i).Ticker); err != ErrKeyExists {
 		new = true
 	}
 
 	// see if we can place new holding in open slot
 	// ... or if we have to allocate new space.
 	l.mu.Lock()
-	if index > l.len {
+	if index > l.len || l.len == 0 {
 		l.list = append(make([]*LinkedList, (index+1)*2), l.list...)
 		l.len = (index + 1) * 2
-	} else {
-		l.len++
 	}
 	l.mu.Unlock()
 
@@ -419,9 +419,9 @@ func (l *HoldingList) InsertUpdate(i ins.Instrument, q ins.Quote) (err error) {
 	// ... or if we can just push new node.
 	switch new {
 	case true:
-		l.list[index] = NewLinkedList(
-			*ins.NewAssetSumm(i.(ins.Quote)), i,
-		)
+		quote := *ins.ExtractQuote(i)
+		assetSumm := *ins.NewAssetSumm(quote)
+		l.list[index] = NewLinkedList(assetSumm, i)
 	case false:
 		l.list[index].Push(i)
 	}

@@ -22,6 +22,36 @@ type Instrument interface {
 	Update(data Quote)
 }
 
+func ExtractOrder(i Instrument) (order *Order) {
+	switch x := i.(type) {
+	case *Order:
+		return x
+	case Order:
+		return &x
+	}
+	return nil
+}
+
+func ExtractQuote(i Instrument) (quote *Quote) {
+	switch x := i.(type) {
+	case Quote:
+		quote = &x
+
+	case *Quote:
+		quote = x
+
+	case *Order:
+		quote = x.Quote
+
+	case *Holding:
+		quote = x.Quote
+
+	case *Security:
+		quote = x.Quote
+	}
+	return quote
+}
+
 // SellOff a struct that satisfies the Instrument interface.
 // Returns a new Security struct and a pointer to the updated under send signal to remove if volume of 0.
 func SellOff(i Instrument, o Order, summ *AssetSumm) (*Security, error) {
@@ -49,14 +79,14 @@ type Quote struct {
 	Ticker           string
 	Volume, Bid, Ask utils.Amount
 	Timestamp        time.Time
-	nSeen            uint // used when
+	Nseen            uint // used when
 }
 
 func NewQuote(ticker string, volume, bid, ask utils.Amount, ts time.Time) *Quote {
 	return &Quote{
 		Ticker: ticker, Volume: volume,
 		Bid: bid, Ask: ask, Timestamp: ts,
-		nSeen: 1,
+		Nseen: 1,
 	}
 }
 
@@ -136,7 +166,6 @@ func (a AssetSumm) GetVolume() utils.Amount {
 // Holding structs refer the holding of a financial asset.
 type Holding struct {
 	*Quote
-	Nseen uint
 }
 
 // NewHolding instantities struct of type Holding.
@@ -153,20 +182,20 @@ func NewHolding(q Quote) *Holding {
 // life of the financial asset in a trading environment. Because a Security struct
 // holds aggregate information regarding a financial asset, it is embedded into an Index or Benchmark.
 type Security struct {
-	Holding
-	AssetSumm
+	*Holding
+	*AssetSumm
 	SellDate time.Time
 }
 
 // NewSecurity instantiates a security object from Tick data.
 func NewSecurity(sellAt *utils.DatedMetric, h *Holding, summ *AssetSumm) *Security {
 	s := &Security{
-		Holding:   *h,
-		AssetSumm: *summ,
+		Holding:   h,
+		AssetSumm: summ,
 		SellDate:  sellAt.Date,
 	}
 	s.Ask = sellAt.Amount
-	s.Nticks = s.Nticks - h.nSeen
+	s.Nticks = s.Nticks - h.Nseen
 
 	return s
 }
@@ -189,6 +218,10 @@ func NewOrder(buy bool, q *Quote) *Order {
 		Status: open,
 		Logic:  market, // TEMP: for now, only accepting market orders
 	}
+}
+
+func (o Order) Update(data Quote) {
+	o.Quote.Update(data)
 }
 
 // Status variables refer to a status of an order's execution.

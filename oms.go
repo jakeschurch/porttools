@@ -54,11 +54,12 @@ func (oms *OMS) Insert(o *ins.Order) error {
 
 func (oms *OMS) Query(t *ins.Tick) error {
 	var entryOrder *ins.Order
+	var err error
 
-	switch entryOrder, _ = strategy.CheckEntryLogic(*t.Quote); entryOrder != nil {
-	case true:
+	switch entryOrder, err = strategy.CheckEntryLogic(*t.Quote); err != nil {
+	case true: // do nothing if entry logic is not met.
+	case false:
 		oms.Insert(entryOrder)
-	case false: // do nothing if entry logic is not met.
 	}
 	return oms.queryOpenOrders(*t)
 }
@@ -76,7 +77,8 @@ func (oms *OMS) queryOpenOrders(t ins.Tick) error {
 	for openOrderNode = orderList.PeekFront(); openOrderNode != nil; openOrderNode = openOrderNode.Next() {
 
 		// TEMP: for now, do nothing with exitOrder
-		exitOrder, err = strategy.CheckExitLogic(openOrderNode.Data.(ins.Order), t)
+		exitOrder, err = strategy.CheckExitLogic(
+			*ins.ExtractOrder(openOrderNode.Data), t)
 
 		switch err != nil {
 		case false:
@@ -100,7 +102,7 @@ func (oms *OMS) updateCash(dxCash utils.Amount) {
 }
 
 func (oms *OMS) executeSell(o ins.Order) error {
-	var closed = make([]*ins.Security, 0)
+	var closed = make([]ins.Security, 0)
 	var list *collection.LinkedList
 	var closedSecurity *ins.Security
 	var toSell *collection.LinkedNode
@@ -133,8 +135,7 @@ func (oms *OMS) executeSell(o ins.Order) error {
 		if closedSecurity, err = list.PeekToSecurity(costMethod, o); err != nil {
 			return nil
 		}
-
-		closed = append(closed, closedSecurity)
+		closed = append(closed, *closedSecurity)
 
 		if toSell.Data.(ins.Quote).Volume == 0 {
 			list.Pop(costMethod)

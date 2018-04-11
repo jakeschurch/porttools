@@ -46,11 +46,11 @@ func NewPositionLog() *PositionLog {
 }
 
 // Insert adds a closed holding to the performance log's closed holdings slice.
-func (p *PositionLog) Insert(securities ...*ins.Security) error {
+func (p *PositionLog) Insert(securities ...ins.Security) error {
 	var err error
 
 	for i := range securities {
-		if err = p.ClosedPositions.Insert(securities[i]); err != nil {
+		if err = p.ClosedPositions.Insert(&securities[i]); err != nil {
 			return err
 		}
 	}

@@ -134,7 +134,8 @@ func (sim *Simulation) Run() error {
 func fileInfo() (string, time.Time) {
 	fileGlob, err := filepath.Glob(simConfig.File.Glob)
 	if err != nil || len(fileGlob) == 0 {
-		// return ErrInvalidFileGlob
+		log.Println(err)
+		return "", time.Time{}
 	}
 	file := fileGlob[0]
 	lastUnderscore := strings.LastIndex(file, "_")
@@ -144,8 +145,7 @@ func fileInfo() (string, time.Time) {
 	if dateErr != nil {
 		log.Fatal("Date cannot be parsed")
 	}
-	filedate := lastDate
-	return file, filedate
+	return file, lastDate
 }
 
 // Process simulates tick data going through our simulation pipeline
@@ -180,7 +180,8 @@ func newWorker(cols colConfig) *worker {
 
 func (worker *worker) run(outChan chan<- *instrument.Tick, r io.ReadSeeker) {
 	var lineCount int
-	done := make(chan struct{}, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -189,32 +190,35 @@ func (worker *worker) run(outChan chan<- *instrument.Tick, r io.ReadSeeker) {
 	r.Seek(0, 0)
 
 	worker.dataChan = make(chan []string, lineCount)
-	go worker.send(outChan, done)
-	go worker.produce(done, r)
 
-	<-done
-	<-done
-}
-
-func (worker *worker) send(outChan chan<- *instrument.Tick, done chan struct{}) {
-	for {
-		data, ok := <-worker.dataChan
-		if !ok {
-			if len(worker.dataChan) == 0 {
-				close(outChan)
-				break
+	go func() {
+		for {
+			data, ok := <-worker.dataChan
+			if !ok {
+				if len(worker.dataChan) == 0 {
+					close(outChan)
+					break
+				}
+			}
+			tick, err := worker.consume(data)
+			if tick != nil && err == nil {
+				outChan <- tick
 			}
 		}
-		tick, err := worker.consume(data)
-		if tick != nil && err == nil {
-			outChan <- tick
-		}
-	}
-	done <- struct{}{}
+		defer wg.Done()
+	}()
+	go worker.produce(r, &wg)
+
+	wg.Wait()
+}
+
+func (worker *worker) send(outChan chan<- *instrument.Tick, wg *sync.WaitGroup) {
+
 }
 
 // 3 by 2 feet
-func (worker *worker) produce(done chan struct{}, r io.ReadSeeker) {
+func (worker *worker) produce(r io.ReadSeeker, wg *sync.WaitGroup) {
+	defer wg.Done()
 	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanLines)
 
@@ -237,15 +241,13 @@ func (worker *worker) produce(done chan struct{}, r io.ReadSeeker) {
 	}
 	close(worker.dataChan)
 	log.Println("done reading from file")
-	done <- struct{}{}
 }
 
 func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	var loadErr, parseErr error
-	var tick *instrument.Tick
+	var quote = new(instrument.Quote)
 
-	tick = new(instrument.Tick)
-	tick.Ticker = record[worker.colCfg.tick]
+	quote.Ticker = record[worker.colCfg.tick]
 
 	bid, bidErr := strconv.ParseFloat(record[worker.colCfg.bid], 64)
 	if bid == 0 {
@@ -254,13 +256,13 @@ func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	if bidErr != nil {
 		loadErr = errors.New("bid Price could not be parsed")
 	}
-	tick.Bid = utils.FloatAmount(bid)
+	quote.Bid = utils.FloatAmount(bid)
 
 	bidSz, bidSzErr := strconv.ParseFloat(record[worker.colCfg.bidSz], 64)
 	if bidSzErr != nil {
 		loadErr = errors.New("bid Size could not be parsed")
 	}
-	tick.BidSize = utils.Amount(bidSz)
+	BidSize := utils.Amount(bidSz)
 
 	ask, askErr := strconv.ParseFloat(record[worker.colCfg.ask], 64)
 	if ask == 0 {
@@ -269,20 +271,20 @@ func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	if askErr != nil {
 		loadErr = errors.New("ask Price could not be parsed")
 	}
-	tick.Ask = utils.FloatAmount(ask)
+	quote.Ask = utils.FloatAmount(ask)
 
 	askSz, askSzErr := strconv.ParseFloat(record[worker.colCfg.askSz], 64)
 	if askSzErr != nil {
 		loadErr = errors.New("ask Size could not be parsed")
 	}
-	tick.AskSize = utils.Amount(askSz)
+	AskSize := utils.Amount(askSz)
 
 	tickDuration, timeErr := time.ParseDuration(record[worker.colCfg.tStamp] + worker.colCfg.timeUnit)
 
 	if timeErr != nil {
 		loadErr = timeErr
 	}
-	tick.Timestamp = worker.colCfg.filedate.Add(tickDuration)
+	quote.Timestamp = worker.colCfg.filedate.Add(tickDuration)
 
 	if parseErr != nil {
 		return nil, parseErr
@@ -290,5 +292,9 @@ func (worker *worker) consume(record []string) (*instrument.Tick, error) {
 	if loadErr != nil {
 		log.Fatal("record could not be loaded")
 	}
-	return tick, nil
+	quote.Nseen = 1
+	if quote.Volume == 0 {
+		quote.Volume = 1
+	}
+	return instrument.NewTick(BidSize, AskSize, quote), nil
 }

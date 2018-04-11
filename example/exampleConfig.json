@@ -1,6 +1,6 @@
 {
     "file": {
-        "glob": "/home/jake/Desktop/mock_20170814",
+        "glob": "/home/jake/Desktop/mock_*",
         "exampleDate": "20060102",
         "timestampUnit": "ns",
         "headers": true,
